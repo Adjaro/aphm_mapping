@@ -1,0 +1,5 @@
+# Fins de ligne LF partout : migrate.py contrôle le checksum binaire des fichiers db/ddl/*.sql
+* text=auto eol=lf
+*.xlsx binary
+*.woff binary
+*.woff2 binary
