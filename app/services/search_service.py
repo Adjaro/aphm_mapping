@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.models import CustomColumn, Release
 from app.repositories import audit_repo, custom_column_repo, stcm_repo
-from app.schemas.search import FACET_LABELS, NULL_VALUE, FacetOut, FacetValueOut, SearchFilter
+from app.schemas.search import (
+    FACET_LABELS,
+    FACET_VALUE_HELP,
+    NULL_VALUE,
+    FacetOut,
+    FacetValueOut,
+    SearchFilter,
+    facet_value_label,
+)
 
 # Champs comparés d'une release à l'autre dans l'onglet Historique
 HISTORY_FIELDS: tuple[tuple[str, str], ...] = (
@@ -88,12 +96,20 @@ def _build_facets(flt: SearchFilter, counts: dict[str, list[tuple[str | None, in
         for value, count in counts.get(name, []):
             key = NULL_VALUE if value is None else value
             seen.add(key)
-            shown = "(vide)" if value is None else value
-            facet.values.append(FacetValueOut(value=key, label=shown, count=count, selected=key in selected))
+            facet.values.append(
+                FacetValueOut(
+                    value=key,
+                    label=facet_value_label(name, key),
+                    count=count,
+                    selected=key in selected,
+                    help=FACET_VALUE_HELP.get(name, {}).get(key),
+                )
+            )
         # Une valeur cochée sans résultat reste visible (compteur 0) pour pouvoir la décocher
         for key in sorted(selected - seen):
-            shown = "(vide)" if key == NULL_VALUE else key
-            facet.values.append(FacetValueOut(value=key, label=shown, count=0, selected=True))
+            facet.values.append(
+                FacetValueOut(value=key, label=facet_value_label(name, key), count=0, selected=True)
+            )
         facets.append(facet)
     return facets
 

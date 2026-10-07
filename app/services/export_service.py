@@ -46,6 +46,8 @@ SEARCH_HEADERS = (
     "equivalence",
     "quality_flag",
     "validity",
+    "n_targets",
+    "n_sources",
 )
 DIFF_HEADERS = (
     "change_type",

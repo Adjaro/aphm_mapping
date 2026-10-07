@@ -76,3 +76,31 @@ def test_url_round_trip() -> None:
     assert url.startswith("/search-terms/terms?release=v1.1&query=hb&domain=Measurement&domain=Observation")
     assert "page=2" in flt.url()
     assert "domain=Observation" not in flt.without("domain", "Observation")
+
+
+def test_cardinality_facets(session: Session) -> None:
+    release = _release(session)
+    add_mapping(session, "v1.0", "GLU", 1002, source_vocabulary_id="LABO")  # GLU -> 1001 et 1002
+    result = search_service.search(session, release, SearchFilter(source_targets=["multiple"]))
+    assert sorted(row["source_code"] for row in result.rows) == ["GLU", "GLU"]
+    assert all(row["n_targets"] == 2 for row in result.rows)
+    assert _facet(result, "source_targets") == {"multiple": 2, "single": 3}
+    shared = search_service.search(session, release, SearchFilter(target_sources=["multiple"]))
+    # 1002 est la cible de HB et de GLU
+    assert sorted(row["source_code"] for row in shared.rows) == ["GLU", "HB"]
+    labels = {
+        v.value: (v.label, v.help) for f in shared.facets if f.name == "target_sources" for v in f.values
+    }
+    assert labels["multiple"][0] == "Cible partagée par plusieurs codes"
+    assert labels["multiple"][1] is not None
+
+
+def test_facet_values_have_help(session: Session) -> None:
+    release = _release(session)
+    result = search_service.search(session, release, SearchFilter())
+    status = next(f for f in result.facets if f.name == "mapping_status")
+    unchecked = next(v for v in status.values if v.value == "UNCHECKED")
+    assert unchecked.help is not None and "pas encore relu" in unchecked.help
+    equivalence = next(f for f in result.facets if f.name == "equivalence")
+    empty = next(v for v in equivalence.values if v.value == NULL_VALUE)
+    assert empty.label == "(non renseignée)" and empty.help is not None

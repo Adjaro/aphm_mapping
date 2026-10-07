@@ -96,3 +96,8 @@ body { background: #f8f9fa; }
 /* Aide */
 .ref-help-steps li { margin-bottom: .35rem; }
 .ref-quick-card .d-flex > .bi { font-size: 1.4rem; }
+
+/* Aide des valeurs de filtre et badges de cardinalité */
+.ref-help-icon { color: var(--bs-secondary-color); font-size: .75rem; margin-left: .2rem; cursor: help; }
+.ref-help-icon:hover, .ref-help-icon:focus { color: var(--bs-primary); }
+.ref-card-badge { font-size: .65rem; font-weight: 600; vertical-align: middle; cursor: help; }

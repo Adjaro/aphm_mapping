@@ -2,6 +2,19 @@
 (function () {
   "use strict";
 
+  // Infobulles Bootstrap (aides des filtres, badges) : au chargement et après chaque mise à jour HTMX
+  function initTooltips(root) {
+    if (!window.bootstrap) return;
+    root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+      window.bootstrap.Tooltip.getOrCreateInstance(el);
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () { initTooltips(document); });
+  document.addEventListener("htmx:afterSettle", function (event) { initTooltips(event.target); });
+  document.addEventListener("htmx:beforeSwap", function () {
+    document.querySelectorAll(".tooltip").forEach(function (el) { el.remove(); });
+  });
+
   // Sélecteur de release du bandeau : recharge la page courante avec ?release=
   document.addEventListener("change", function (event) {
     var select = event.target.closest("#ref-release-select");

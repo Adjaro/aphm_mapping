@@ -17,12 +17,14 @@ from sqlalchemy import (
     and_,
     case,
     cast,
+    distinct,
     false,
     func,
     literal,
     or_,
     select,
     text,
+    tuple_,
     union_all,
 )
 from sqlalchemy.orm import Session
@@ -61,6 +63,8 @@ FACET_COLUMNS: dict[str, str] = {
     "relationship": "relationship_id",
     "quality": "quality_flag",
     "validity": "validity",
+    "source_targets": "source_targets",
+    "target_sources": "target_sources",
 }
 
 # Liste blanche : clé de tri -> colonne de la CTE de base
@@ -90,7 +94,33 @@ RESULT_COLUMNS = (
     "relationship_id",
     "quality_flag",
     "validity",
+    "n_targets",
+    "n_sources",
 )
+
+
+def _cardinalities(release_id: int) -> tuple[Any, Any]:
+    """Nombre de cibles par code source et de codes source par cible, calculés sur toute la release."""
+    by_source = (
+        select(
+            stcm.c.source_vocabulary_id,
+            stcm.c.source_code,
+            func.count().label("n_targets"),
+        )
+        .where(stcm.c.release_id == release_id)
+        .group_by(stcm.c.source_vocabulary_id, stcm.c.source_code)
+        .subquery("by_source")
+    )
+    by_target = (
+        select(
+            stcm.c.target_concept_id,
+            func.count(distinct(tuple_(stcm.c.source_vocabulary_id, stcm.c.source_code))).label("n_sources"),
+        )
+        .where(stcm.c.release_id == release_id)
+        .group_by(stcm.c.target_concept_id)
+        .subquery("by_target")
+    )
+    return by_source, by_target
 
 
 def _escape_like(value: str) -> str:
@@ -99,6 +129,7 @@ def _escape_like(value: str) -> str:
 
 def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
     """Sélection de base : release + texte + import ; les facettes sont appliquées ensuite."""
+    by_source, by_target = _cardinalities(release_id)
     stmt = (
         select(
             stcm.c.stcm_id,
@@ -115,8 +146,22 @@ def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
             q.c.quality_flag,
             q.c.concept_name,
             VALIDITY_EXPR.label("validity"),
+            by_source.c.n_targets,
+            by_target.c.n_sources,
+            case((by_source.c.n_targets > 1, "multiple"), else_="single").label("source_targets"),
+            case((by_target.c.n_sources > 1, "multiple"), else_="single").label("target_sources"),
         )
-        .select_from(stcm.join(q, q.c.stcm_id == stcm.c.stcm_id))
+        .select_from(
+            stcm.join(q, q.c.stcm_id == stcm.c.stcm_id)
+            .join(
+                by_source,
+                and_(
+                    by_source.c.source_vocabulary_id == stcm.c.source_vocabulary_id,
+                    by_source.c.source_code == stcm.c.source_code,
+                ),
+            )
+            .join(by_target, by_target.c.target_concept_id == stcm.c.target_concept_id)
+        )
         .where(stcm.c.release_id == release_id, q.c.release_id == release_id)
     )
     if flt.query:
