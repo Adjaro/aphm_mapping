@@ -4,6 +4,27 @@ Plateforme web interne qui versionne et expose la table `source_to_concept_map` 
 locaux AP-HM vers les concepts standards OMOP), avec une ergonomie inspirée d'Athena.
 La référence du projet (architecture, règles, conventions) est [CLAUDE.md](CLAUDE.md).
 
+## Environnement isolé (Windows, sans Internet)
+
+Le dossier `wheels/` contient toutes les dépendances Python (CPython 3.12, Windows 64 bits).
+Prérequis sur la machine cible : **Python 3.12** et un **PostgreSQL 16** accessible.
+
+```powershell
+# 1. Installation hors ligne (.venv + dépendances depuis wheels\ + .env + migrations)
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+#    -> puis renseigner DATABASE_URL dans .env si besoin
+
+# 2. Démarrage (ou double-clic sur demarrer.cmd)
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+#    options : -BindHost 0.0.0.0 -Port 8080 -NoBrowser -SkipMigrate
+#    PostgreSQL portable : -PgBin C:\pgsql16\pgsql\bin -PgData C:\pgsql16\data -PgPort 5433
+```
+
+`start.ps1` installe automatiquement l'application au premier lancement, démarre le PostgreSQL portable
+si `-PgBin`/`-PgData` sont fournis, applique les migrations en attente, lance le serveur et ouvre le navigateur.
+Pour régénérer les wheels sur un poste connecté : `scripts\download_wheels.ps1`
+(ex. `-Platform manylinux2014_x86_64` pour un serveur Linux).
+
 ## Démarrage rapide (poste de développement)
 
 Prérequis : Python 3.11+, PostgreSQL 16 (`docker compose up -d` fournit une instance de développement).
@@ -42,6 +63,33 @@ Puis ouvrir http://localhost:8000.
 **Vocabulaire de démonstration** : si `vocab.concept` est vide, le script l'alimente avec les concepts
 cibles décrits dans les fichiers (≈ 23 000 concepts). C'est un extrait : charger le vocabulaire Athena
 complet avec `load_vocab.py` avant d'utiliser le sélecteur de concepts en production.
+
+## Export
+
+Onglet **Export** (`/export`) : choisir la release, le format et le contenu (vocabulaires, statuts, cibles 0).
+
+| Format | Contenu |
+|---|---|
+| Properties | Un fichier `<Domaine>.properties` par domaine, lignes `code_source=id_cible[,id_cible…]` (cibles triées, codes en ordre binaire). Téléchargement ZIP ou écriture dans `data/30_properties` (`EXPORT_DIR`/`PROPERTIES_SUBDIR`) |
+| CSV CDM | `source_to_concept_map` au format CDM v5.4 strict |
+| CSV complet | Toutes les colonnes, extensions, colonnes personnalisées, libellé et qualité de la cible |
+
+Par défaut : tous les statuts sauf IGNORED, sans les cibles 0. Le même export est disponible par
+`scripts/export_release.py` (tâche planifiée) et par l'API (`/api/releases/{label}/properties.zip`).
+
+## Onglets « Comparer » et « Athena »
+
+- **Comparer** (`/compare`) : différences entre deux versions au niveau du code source (nouveau code,
+  code supprimé, cible changée, autre modification), répartition par vocabulaire, champs modifiés,
+  transitions de statut, liste filtrable et export CSV. Par défaut : la dernière release face à la
+  majeure précédente.
+- **Athena** (`/athena`) : compare chaque mapping aux relations natives « Maps to » d'Athena.
+  Paramétrage dans *Paramètres › Base Athena* :
+  1. enregistrer la connexion (base PostgreSQL contenant `concept`, `concept_relationship`, `vocabulary` ;
+     compte en lecture seule conseillé, le mot de passe est stocké dans le référentiel) ;
+  2. associer chaque vocabulaire source à un vocabulaire Athena (ex. `ICD10` → `CIM10` en ignorant
+     les points, `UNIT` → `UCUM`, `CCAM` → `CCAM`) ;
+  3. **Synchroniser** : copie locale des « Maps to » des vocabulaires paramétrés.
 
 ## Qualité
 

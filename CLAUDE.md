@@ -27,10 +27,18 @@ locaux AP-HM vers les concepts standards OMOP), alimentée par des fichiers CSV/
 - Gestion des releases : créer la staging, publier, promouvoir, diff entre deux releases.
 - Colonnes personnalisées sur `source_to_concept_map` (stockées dans `extra jsonb`).
 - Contrôle qualité des cibles et exports CSV (résultats de recherche, diff, release au format CDM).
+- Onglet « Export » : properties (un fichier par domaine, `code=cible[,cible…]`), CSV CDM, CSV complet ;
+  téléchargement ou écriture dans `data/30_properties` ; même export en ligne de commande et par l'API.
+- Onglet « Comparer » : différences entre deux releases au niveau du code source (tableau de bord,
+  transitions de statut, liste à facettes, export).
+- Onglet « Athena » : comparaison de nos mappings aux relations natives « Maps to » / « Maps to value »
+  d'une base Athena enregistrée (connexion stockée, copie locale synchronisée à la demande).
+  Ce n'est pas un navigateur de vocabulaire : seules les relations « Maps to » sont lues.
 
 ### Exclu (ne pas implémenter sans demande explicite)
 - **Navigation dans le vocabulaire** : pas de page de recherche de concepts, pas de fiche concept,
-  pas de relations ni de hiérarchie. Le schéma `vocab` est un référentiel technique en lecture seule.
+  pas de navigation dans les relations ni la hiérarchie (seule exception : la comparaison aux « Maps to »
+  d'Athena, demandée explicitement). Le schéma `vocab` est un référentiel technique en lecture seule.
 - Authentification / gestion des droits (pas d'auth pour l'instant ; le nom de l'auteur est saisi
   librement et stocké dans un cookie).
 - Toute écriture dans la base du CDM.
@@ -53,7 +61,9 @@ Contraintes d'environnement (réseau hospitalier partiellement isolé) :
 - **Aucun appel réseau à l'exécution** : Bootstrap, Bootstrap Icons et HTMX sont copiés dans
   `app/static/vendor/` et servis localement. Jamais de balise `<script src="https://…">`.
 - Les dépendances Python sont figées dans `requirements.txt` (versions exactes) pour une
-  installation via miroir pip interne ou wheels hors ligne.
+  installation via miroir pip interne ou wheels hors ligne. Le dossier `wheels/` contient ces wheels
+  (CPython 3.12, Windows 64 bits) ; `scripts/install.ps1` installe hors ligne, `scripts/start.ps1`
+  (ou `demarrer.cmd`) démarre l'application, `scripts/download_wheels.ps1` régénère les wheels.
 - Doit tourner sur Linux (serveur) et se lancer aussi sur un poste Windows de développement.
 
 ## 4. Principe d'architecture
@@ -76,6 +86,8 @@ omop-referentiel/
 ├── CLAUDE.md
 ├── README.md
 ├── requirements.txt
+├── demarrer.cmd                # double-clic : lance scripts/start.ps1
+├── wheels/                     # dépendances Python hors ligne (pip --no-index)
 ├── pyproject.toml              # config ruff, mypy, pytest
 ├── .env.example
 ├── db/
@@ -86,12 +98,18 @@ omop-referentiel/
 │   │   ├── 04_import_helpers.sql
 │   │   ├── 05_diff_releases_perf.sql
 │   │   ├── 06_audit_statement_trigger.sql
-│   │   └── 07_audit_update_hash_join.sql
+│   │   ├── 07_audit_update_hash_join.sql
+│   │   ├── 08_diff_codes.sql
+│   │   └── 09_athena_reference.sql
 │   └── seed/                   # jeux de données de démonstration / test
 ├── scripts/
 │   ├── migrate.py              # applique db/ddl/*.sql non encore appliqués
 │   ├── load_vocab.py           # charge CONCEPT.csv / VOCABULARY.csv Athena
-│   └── load_usagi_dir.py       # charge un répertoire d'exports Usagi (ex. data/) via le circuit d'import
+│   ├── load_usagi_dir.py       # charge un répertoire d'exports Usagi (ex. data/) via le circuit d'import
+│   ├── export_release.py       # export properties / CSV d'une release (tâche planifiée)
+│   ├── install.ps1             # installation hors ligne (venv + wheels + .env + migrations)
+│   ├── start.ps1               # démarrage (PostgreSQL portable optionnel, migrations, serveur)
+│   └── download_wheels.ps1     # (poste connecté) téléchargement des wheels
 ├── app/
 │   ├── main.py                 # création de l'app FastAPI, montage des routers et du static
 │   ├── config.py               # Settings (pydantic-settings)
@@ -162,6 +180,11 @@ Base `omop_referentiel`, deux schémas :
 | `mapping.v_stcm_cdm` | Format CDM strict de toutes les releases, filtrable par `release_label` (export API) — 04 |
 | `mapping.try_cast_date/int/numeric/boolean()` | Conversions tolérantes (NULL si invalide) pour les contrôles d'import — 04 |
 | `mapping.diff_releases()` (05) | Réécrite à résultat identique : comparaison colonne à colonne, jsonb construit seulement pour les lignes différentes. **Toute nouvelle colonne de `source_to_concept_map` doit y être ajoutée** |
+| `mapping.diff_codes()` (08) | Diff de deux releases regroupé par code : NEW_CODE / REMOVED_CODE / TARGET_CHANGED / MODIFIED, cibles avant / après |
+| `mapping.athena_connection` (09) | Bases Athena enregistrées (une seule active ; mot de passe stocké, compte en lecture seule) |
+| `mapping.athena_vocabulary_map` (09) | `source_vocabulary_id` local → `vocabulary_id` Athena, normalisation des codes (points, casse) |
+| `mapping.athena_maps_to` (09) | Copie locale des concepts Athena paramétrés et de leurs « Maps to » valides (remplacée à chaque synchronisation) |
+| `mapping.compare_athena()` (09) | Statut de chaque mapping face à Athena : SAME / DIFFERENT / MISSING_LOCAL / ATHENA_NO_MAPPING / CODE_NOT_IN_ATHENA |
 | Triggers `stcm_audit_update` / `stcm_audit_delete` (06, 07) | Audit ensembliste (FOR EACH STATEMENT + tables de transition) remplaçant `stcm_audit` ; même contenu d'`audit_log` |
 
 ### Invariants (ne jamais les contourner)
@@ -193,8 +216,10 @@ Nom affiché de l'application : « Référentiel mappings OMOP — AP-HM ».
 | Download | Export CSV de la recherche courante |
 
 ### Page de recherche (`/search-terms/terms`)
-- **Bandeau supérieur** sombre (bleu-gris) avec le nom de l'appli, la navigation (Recherche, Import,
-  Releases, Qualité) et le **sélecteur de release** à droite (par défaut : dernière publiée).
+- **Bandeau supérieur** sombre (bleu-gris) avec le nom de l'appli, la navigation principale
+  (Recherche, Import, Releases, Export, Comparer), un menu **Avancé** (Comparaison Athena, Qualité,
+  paramètres Base Athena et Colonnes personnalisées, API) et le **sélecteur de release** à droite
+  (par défaut : dernière publiée).
 - **Barre de recherche** pleine largeur sous le bandeau : recherche sur `source_code` et
   `source_code_description` (trigram, insensible à la casse), plus le libellé du concept cible.
 - **Panneau de facettes à gauche** (≈ 25 % de largeur), chaque facette repliable, avec une case à
@@ -257,10 +282,25 @@ Nom affiché de l'application : « Référentiel mappings OMOP — AP-HM ».
 | POST | `/releases/initial` | Créer la première release majeure (référentiel vide uniquement) |
 | GET | `/releases/diff?from=v1.0&to=v1.1` | Diff à facettes (type de changement, vocab. source) |
 | GET | `/releases/diff/export.csv?from=…&to=…` | Export CSV du diff filtré |
+| GET | `/compare?from=v1.0&to=v2.0` | Onglet Comparer : tableau de bord et liste par code (facettes `change_kind`, `source_vocabulary`, `field`) |
+| GET | `/compare/export.csv` | Export CSV de la comparaison filtrée |
+| GET | `/athena?release=v2.0` | Onglet Athena : comparaison aux « Maps to » natifs (facettes `status`, `source_vocabulary`, `mapping_status`) |
+| GET | `/athena/export.csv` | Export CSV de la comparaison Athena filtrée |
+| GET | `/settings/athena` | Paramétrage : connexions, correspondance des vocabulaires, synchronisation |
+| POST | `/settings/athena/connections` | Enregistrer une connexion |
+| POST | `/settings/athena/connections/{id}/{test,activate,delete}` | Tester / activer / supprimer une connexion |
+| POST | `/settings/athena/vocabulary-map` | Ajouter ou modifier une correspondance de vocabulaire |
+| POST | `/settings/athena/vocabulary-map/{source_vocabulary_id}/delete` | Supprimer une correspondance |
+| POST | `/settings/athena/sync` | Synchroniser la copie locale depuis la base active |
 | GET | `/quality` | Synthèse `v_mapping_quality` par release / vocabulaire |
 | GET/POST | `/settings/custom-columns` | Gestion des colonnes personnalisées |
 | GET | `/api/releases/{label}/source_to_concept_map.csv` | Export CDM strict pour le pipeline |
 | GET | `/api/releases` | Liste JSON des releases |
+| GET | `/api/releases/{label}/properties.zip` | Fichiers `<Domaine>.properties` (IGNORED et cibles 0 exclus) |
+| GET | `/api` | Documentation locale de l'API (Swagger UI désactivé : il dépend d'un CDN) |
+| GET | `/export?release=&format=&source_vocabulary=&mapping_status=&include_unmapped=` | Onglet Export : choix du format et du contenu |
+| GET | `/export/download?…` | Téléchargement (ZIP properties, CSV CDM, CSV complet) |
+| POST | `/export/write` | Écrit les `.properties` dans `EXPORT_DIR/PROPERTIES_SUBDIR` (défaut `data/30_properties`) |
 
 Les URL sont en kebab-case, les paramètres de requête en snake_case.
 
@@ -349,6 +389,9 @@ Objectif de performance : 300 000 lignes chargées en moins d'une minute.
 - Les transactions sont ouvertes dans les **services** (`with session.begin():`), jamais dans les
   routes ni dans les repositories.
 - Les appels aux fonctions PostgreSQL passent par le repository concerné (`release_repo.promote_staging()`).
+- Base Athena distante : connexion psycopg en lecture seule (`default_transaction_read_only`). Le nom
+  de schéma distant est le seul identifiant dynamique : validé (CHECK SQL + motif) et cité par
+  `psycopg.sql.Identifier` ; toutes les valeurs restent des paramètres liés.
 - Les colonnes personnalisées sont lues et écrites via `extra` (`extra ->> 'nom'`), avec
   validation selon `custom_column.data_type` et `allowed_values` dans le service.
 - Toute requête de recherche est paginée (`LIMIT/OFFSET`) et filtrée par `release_id`.
@@ -390,6 +433,11 @@ cp .env.example .env                                   # DATABASE_URL=postgresql
 python scripts/migrate.py                               # applique db/ddl/
 python scripts/load_vocab.py --dir /chemin/athena       # charge CONCEPT.csv et VOCABULARY.csv puis rejoue 02
 python scripts/load_usagi_dir.py --dir data --publish <build> --staging v1.1  # exports Usagi -> v1.0
+python scripts/export_release.py --release v2.0 --format properties             # -> data/30_properties
+
+# Environnement isolé Windows (sans Internet)
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1    # .venv depuis wheels/
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1      # ou double-clic sur demarrer.cmd
 
 # Lancement
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -1117,4 +1165,281 @@ BEGIN
      ORDER BY o.stcm_id;
     RETURN NULL;
 END $$;
+```
+
+### `db/ddl/08_diff_codes.sql`
+
+```sql
+-- =====================================================================
+-- 08 — Comparaison de deux releases au niveau du code source
+-- Prérequis : 05_diff_releases_perf.sql
+-- mapping.diff_codes(p_from, p_to) regroupe le résultat de diff_releases par
+-- (source_vocabulary_id, source_code) et qualifie le changement :
+--   NEW_CODE       : code absent de p_from, présent dans p_to
+--   REMOVED_CODE   : code présent dans p_from, absent de p_to
+--   TARGET_CHANGED : cibles (target_concept_id, relationship_id) ajoutées ou retirées
+--   MODIFIED       : mêmes cibles, autres colonnes modifiées (statut, commentaire…)
+-- old_targets / new_targets : cibles du code dans chaque release (jsonb).
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION mapping.diff_codes(p_from text, p_to text)
+RETURNS TABLE (
+    change_kind              text,
+    source_vocabulary_id     varchar,
+    source_code              varchar,
+    source_code_description  varchar,
+    n_added                  int,
+    n_removed                int,
+    n_modified               int,
+    changed_fields           text[],
+    old_targets              jsonb,
+    new_targets              jsonb
+) LANGUAGE sql STABLE AS $$
+    WITH d AS (
+        SELECT *
+          FROM mapping.diff_releases(p_from, p_to)
+    ),
+    c AS (
+        SELECT d.source_vocabulary_id,
+               d.source_code,
+               (count(*) FILTER (WHERE d.change_type = 'ADDED'))::int    AS n_added,
+               (count(*) FILTER (WHERE d.change_type = 'REMOVED'))::int  AS n_removed,
+               (count(*) FILTER (WHERE d.change_type = 'MODIFIED'))::int AS n_modified
+          FROM d
+         GROUP BY d.source_vocabulary_id, d.source_code
+    ),
+    f AS (
+        SELECT d.source_vocabulary_id,
+               d.source_code,
+               array_agg(DISTINCT k ORDER BY k) AS fields
+          FROM d
+         CROSS JOIN LATERAL unnest(d.changed_fields) AS k
+         GROUP BY d.source_vocabulary_id, d.source_code
+    ),
+    r AS (
+        SELECT (SELECT release_id FROM mapping.release WHERE label = p_from) AS id_from,
+               (SELECT release_id FROM mapping.release WHERE label = p_to)   AS id_to
+    ),
+    t AS (
+        SELECT s.release_id,
+               s.source_vocabulary_id,
+               s.source_code,
+               max(s.source_code_description) AS description,
+               jsonb_agg(
+                   jsonb_build_object(
+                       'target_concept_id', s.target_concept_id,
+                       'relationship_id',   s.relationship_id,
+                       'mapping_status',    s.mapping_status,
+                       'concept_name',      co.concept_name
+                   )
+                   ORDER BY s.relationship_id, s.target_concept_id
+               ) AS targets
+          FROM mapping.source_to_concept_map s
+          JOIN c
+            ON c.source_vocabulary_id = s.source_vocabulary_id
+           AND c.source_code          = s.source_code
+          LEFT JOIN vocab.concept co ON co.concept_id = s.target_concept_id
+         WHERE s.release_id IN (SELECT id_from FROM r UNION ALL SELECT id_to FROM r)
+         GROUP BY s.release_id, s.source_vocabulary_id, s.source_code
+    )
+    SELECT CASE
+               WHEN o.targets IS NULL               THEN 'NEW_CODE'
+               WHEN n.targets IS NULL               THEN 'REMOVED_CODE'
+               WHEN c.n_added > 0 OR c.n_removed > 0 THEN 'TARGET_CHANGED'
+               ELSE 'MODIFIED'
+           END,
+           c.source_vocabulary_id,
+           c.source_code,
+           coalesce(n.description, o.description),
+           c.n_added,
+           c.n_removed,
+           c.n_modified,
+           coalesce(f.fields, ARRAY[]::text[]),
+           o.targets,
+           n.targets
+      FROM c
+     CROSS JOIN r
+      LEFT JOIN f
+             ON f.source_vocabulary_id = c.source_vocabulary_id
+            AND f.source_code          = c.source_code
+      LEFT JOIN t o
+             ON o.release_id           = r.id_from
+            AND o.source_vocabulary_id = c.source_vocabulary_id
+            AND o.source_code          = c.source_code
+      LEFT JOIN t n
+             ON n.release_id           = r.id_to
+            AND n.source_vocabulary_id = c.source_vocabulary_id
+            AND n.source_code          = c.source_code;
+$$;
+```
+
+### `db/ddl/09_athena_reference.sql`
+
+```sql
+-- =====================================================================
+-- 09 — Comparaison avec les mappings natifs d'Athena (relations « Maps to »)
+-- Prérequis : 03_mapping.sql
+--   * mapping.athena_connection     : bases Athena enregistrées (une seule active)
+--   * mapping.athena_vocabulary_map : source_vocabulary_id local -> vocabulary_id Athena
+--                                     (+ normalisation des codes : points, casse)
+--   * mapping.athena_maps_to        : copie locale, à la demande, des concepts des
+--                                     vocabulaires paramétrés et de leurs relations
+--                                     « Maps to » / « Maps to value » valides
+--   * mapping.normalize_code()      : clé de rapprochement d'un code
+--   * mapping.compare_athena()      : statut de chaque mapping d'une release face à Athena
+-- Le mot de passe est stocké en clair : utiliser un compte Athena en lecture seule.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS mapping.athena_connection (
+    athena_connection_id  serial PRIMARY KEY,
+    label                 text NOT NULL UNIQUE,
+    host                  text NOT NULL,
+    port                  int  NOT NULL DEFAULT 5432 CHECK (port BETWEEN 1 AND 65535),
+    database_name         text NOT NULL,
+    username              text NOT NULL,
+    password              text,
+    schema_name           text NOT NULL DEFAULT 'public' CHECK (schema_name ~ '^[A-Za-z_][A-Za-z0-9_]*$'),
+    is_active             boolean NOT NULL DEFAULT false,
+    athena_vocabulary_version text,
+    last_sync_at          timestamptz,
+    last_sync_status      text CHECK (last_sync_status IN ('ok', 'failed')),
+    last_sync_message     text,
+    last_sync_rows        int,
+    created_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- Une seule connexion active à la fois
+CREATE UNIQUE INDEX IF NOT EXISTS uq_athena_connection_one_active
+    ON mapping.athena_connection (is_active) WHERE is_active;
+
+CREATE TABLE IF NOT EXISTS mapping.athena_vocabulary_map (
+    source_vocabulary_id  varchar(20) PRIMARY KEY,
+    athena_vocabulary_id  varchar(20) NOT NULL,
+    ignore_dots           boolean NOT NULL DEFAULT true,
+    ignore_case           boolean NOT NULL DEFAULT true,
+    created_at            timestamptz NOT NULL DEFAULT now()
+);
+
+-- Une ligne par (concept source Athena, cible) ; concept sans « Maps to » : cible NULL
+CREATE TABLE IF NOT EXISTS mapping.athena_maps_to (
+    vocabulary_id          varchar(20)  NOT NULL,
+    concept_code           varchar(50)  NOT NULL,
+    concept_id             int          NOT NULL,
+    concept_name           varchar(255),
+    invalid_reason         varchar(1),
+    relationship_id        varchar(20),
+    target_concept_id      int,
+    target_concept_name    varchar(255),
+    target_vocabulary_id   varchar(20),
+    target_domain_id       varchar(20),
+    target_standard_concept varchar(1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_athena_maps_to_vocab_code ON mapping.athena_maps_to (vocabulary_id, concept_code);
+CREATE INDEX IF NOT EXISTS idx_athena_maps_to_concept    ON mapping.athena_maps_to (concept_id);
+
+CREATE OR REPLACE FUNCTION mapping.normalize_code(p_code text, p_ignore_dots boolean, p_ignore_case boolean)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+    SELECT CASE WHEN p_ignore_case THEN upper(v.code) ELSE v.code END
+      FROM (SELECT CASE WHEN p_ignore_dots THEN replace(btrim(p_code), '.', '') ELSE btrim(p_code) END AS code) v;
+$$;
+
+-- Statuts :
+--   SAME               : notre cible fait partie des cibles Athena (même relation)
+--   DIFFERENT          : Athena propose d'autres cibles pour cette relation
+--   MISSING_LOCAL      : non mappé chez nous (cible 0) alors qu'Athena propose une cible
+--   ATHENA_NO_MAPPING  : code trouvé dans Athena mais sans « Maps to » pour cette relation
+--   CODE_NOT_IN_ATHENA : code introuvable dans le vocabulaire Athena paramétré
+-- Seuls les vocabulaires présents dans athena_vocabulary_map sont comparés.
+CREATE OR REPLACE FUNCTION mapping.compare_athena(p_release_label text)
+RETURNS TABLE (
+    stcm_id                 bigint,
+    source_vocabulary_id    varchar,
+    source_code             varchar,
+    source_code_description varchar,
+    target_concept_id       int,
+    target_concept_name     varchar,
+    relationship_id         varchar,
+    mapping_status          text,
+    athena_vocabulary_id    varchar,
+    athena_concept_id       int,
+    athena_concept_code     varchar,
+    athena_concept_name     varchar,
+    athena_target_ids       int[],
+    athena_targets          jsonb,
+    comparison_status       text
+) LANGUAGE sql STABLE AS $$
+    WITH s AS (
+        SELECT s.stcm_id,
+               s.source_vocabulary_id,
+               s.source_code,
+               s.source_code_description,
+               s.target_concept_id,
+               s.relationship_id,
+               s.mapping_status,
+               m.athena_vocabulary_id,
+               mapping.normalize_code(s.source_code, m.ignore_dots, m.ignore_case) AS code_key
+          FROM mapping.source_to_concept_map s
+          JOIN mapping.release r
+            ON r.release_id = s.release_id
+           AND r.label      = p_release_label
+          JOIN mapping.athena_vocabulary_map m
+            ON m.source_vocabulary_id = s.source_vocabulary_id
+    ),
+    a AS (
+        SELECT m.source_vocabulary_id,
+               mapping.normalize_code(a.concept_code, m.ignore_dots, m.ignore_case) AS code_key,
+               a.*
+          FROM mapping.athena_maps_to a
+          JOIN mapping.athena_vocabulary_map m
+            ON m.athena_vocabulary_id = a.vocabulary_id
+    ),
+    j AS (
+        SELECT s.stcm_id,
+               min(a.concept_id)                                                AS athena_concept_id,
+               min(a.concept_code)                                              AS athena_concept_code,
+               min(a.concept_name)                                              AS athena_concept_name,
+               count(a.concept_id)                                              AS n_found,
+               array_agg(DISTINCT a.target_concept_id ORDER BY a.target_concept_id)
+                   FILTER (WHERE a.relationship_id = s.relationship_id)         AS target_ids,
+               jsonb_agg(
+                   DISTINCT jsonb_build_object(
+                       'relationship_id',   a.relationship_id,
+                       'target_concept_id', a.target_concept_id,
+                       'concept_name',      a.target_concept_name,
+                       'vocabulary_id',     a.target_vocabulary_id,
+                       'domain_id',         a.target_domain_id
+                   )
+               ) FILTER (WHERE a.target_concept_id IS NOT NULL)                AS targets
+          FROM s
+          LEFT JOIN a
+                 ON a.source_vocabulary_id = s.source_vocabulary_id
+                AND a.code_key             = s.code_key
+         GROUP BY s.stcm_id
+    )
+    SELECT s.stcm_id,
+           s.source_vocabulary_id,
+           s.source_code,
+           s.source_code_description,
+           s.target_concept_id,
+           c.concept_name,
+           s.relationship_id,
+           s.mapping_status,
+           s.athena_vocabulary_id,
+           j.athena_concept_id,
+           j.athena_concept_code,
+           j.athena_concept_name,
+           j.target_ids,
+           j.targets,
+           CASE
+               WHEN j.n_found = 0                          THEN 'CODE_NOT_IN_ATHENA'
+               WHEN j.target_ids IS NULL                   THEN 'ATHENA_NO_MAPPING'
+               WHEN s.target_concept_id = ANY(j.target_ids) THEN 'SAME'
+               WHEN s.target_concept_id = 0                THEN 'MISSING_LOCAL'
+               ELSE 'DIFFERENT'
+           END
+      FROM s
+      JOIN j ON j.stcm_id = s.stcm_id
+      LEFT JOIN vocab.concept c ON c.concept_id = s.target_concept_id;
+$$;
 ```
