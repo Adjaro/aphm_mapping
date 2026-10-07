@@ -11,7 +11,7 @@
   {% endif %}
 </div>
 
-<form method="get" action="/compare">
+<form method="get" action="/compare" data-ref-loading="Calcul de la comparaison…">
 <div class="ref-searchbar mb-3 row g-2 align-items-end mx-0">
   <div class="col-auto"><label class="form-label small mb-0" for="ref-from">Version de référence</label>
     <select id="ref-from" name="from" class="form-select form-select-sm">
@@ -24,7 +24,7 @@
     </select></div>
   <div class="col"><label class="form-label small mb-0" for="ref-cq">Code ou description</label>
     <input id="ref-cq" type="search" name="query" value="{{ flt.query }}" class="form-control form-control-sm"></div>
-  <div class="col-auto"><button class="btn btn-primary btn-sm">Comparer</button></div>
+  <div class="col-auto"><button class="btn btn-primary btn-sm"><span class="spinner-border spinner-border-sm d-none ref-loading-spinner" aria-hidden="true"></span> Comparer</button></div>
 </div>
 
 {% if compare_error %}<div class="alert alert-danger py-2">{{ compare_error }}</div>{% endif %}

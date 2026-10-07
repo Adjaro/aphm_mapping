@@ -48,7 +48,7 @@ VOCAB_ROWS = [
 TRUNCATE_SQL = """
 TRUNCATE mapping.audit_log, mapping.import_error, mapping.source_to_concept_map, mapping.import_batch,
          mapping.release, mapping.custom_column, mapping.athena_connection, mapping.athena_vocabulary_map,
-         mapping.athena_maps_to RESTART IDENTITY CASCADE
+         mapping.athena_maps_to, mapping.compare_cache RESTART IDENTITY CASCADE
 """
 
 

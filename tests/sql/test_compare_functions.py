@@ -114,3 +114,50 @@ def test_strict_matching_without_normalization(session: Session) -> None:
     sql(session, "UPDATE mapping.athena_vocabulary_map SET ignore_dots = false")
     rows = sql(session, "SELECT comparison_status FROM mapping.compare_athena('v1.0')")
     assert rows == [("CODE_NOT_IN_ATHENA",)]
+
+
+def test_app_code_view_matches_diff_codes(session: Session) -> None:
+    """La vue par code de l'application (déduite de diff_releases) = mapping.diff_codes."""
+    from sqlalchemy import text as sql_text
+
+    from app.repositories import compare_repo
+
+    _two_releases(session)
+    sql(
+        session,
+        "UPDATE mapping.source_to_concept_map s SET mapping_status = 'FLAGGED', domain_id = 'X' "
+        "FROM mapping.release r WHERE r.release_id = s.release_id "
+        "AND r.label = 'v1.1' AND s.source_code = 'GLU'",
+    )
+    sql(
+        session,
+        "UPDATE mapping.source_to_concept_map s SET target_concept_id = 2001 FROM mapping.release r "
+        "WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'DT2'",
+    )
+    sql(
+        session,
+        "DELETE FROM mapping.source_to_concept_map s USING mapping.release r "
+        "WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'OLD'",
+    )
+    add_mapping(session, "v1.1", "NEW", 3001, target_vocabulary_id="UCUM", domain_id="Unit")
+    add_mapping(
+        session, "v1.1", "HB", 2001, target_vocabulary_id="SNOMED"
+    )  # cible ajoutée à un code existant
+    reference = sql(
+        session,
+        "SELECT change_kind, source_code, n_added, n_removed, n_modified, changed_fields "
+        "FROM mapping.diff_codes('v1.0', 'v1.1') ORDER BY source_code",
+    )
+    with session.begin():
+        compare_repo.ensure_cached(session, "test", "v1.0", "v1.1")
+        app_view = [
+            tuple(row)
+            for row in session.execute(
+                sql_text(
+                    "SELECT change_kind, source_code, n_added, n_removed, n_modified, changed_fields "
+                    "FROM mapping.compare_cache_codes WHERE cache_key = 'test' ORDER BY source_code"
+                )
+            )
+        ]
+    assert app_view == reference
+    assert {row[0] for row in reference} == {"NEW_CODE", "REMOVED_CODE", "TARGET_CHANGED", "MODIFIED"}

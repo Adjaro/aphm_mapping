@@ -44,6 +44,23 @@
     if (index < 0) { document.getElementById("ref-query").focus(); } else { items[index].focus(); }
   });
 
+  // Formulaires lents (comparaison) : indicateur de calcul pendant le chargement de la page suivante
+  document.addEventListener("submit", function (event) {
+    var form = event.target.closest("form[data-ref-loading]");
+    if (!form) return;
+    form.querySelectorAll(".ref-loading-spinner").forEach(function (el) { el.classList.remove("d-none"); });
+    var overlay = document.createElement("div");
+    overlay.className = "ref-loading-overlay";
+    overlay.innerHTML = '<div class="spinner-border text-primary" role="status"></div><div class="mt-2">' +
+      form.getAttribute("data-ref-loading") + "</div>";
+    document.body.appendChild(overlay);
+  });
+  // Les cases à cocher des facettes soumettent le formulaire : même indicateur
+  document.addEventListener("change", function (event) {
+    var field = event.target.closest("form[data-ref-loading] [data-ref-autosubmit]");
+    if (field) field.form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+  }, true);
+
   // Sélecteur de release du bandeau : recharge la page courante avec ?release=
   document.addEventListener("change", function (event) {
     var select = event.target.closest("#ref-release-select");

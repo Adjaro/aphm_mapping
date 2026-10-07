@@ -32,6 +32,7 @@ from app.schemas.athena import AthenaFilter
 from app.schemas.compare import CompareFilter
 from app.schemas.export import ExportFilter
 from app.schemas.search import SearchFilter
+from app.services import compare_service
 
 SEARCH_HEADERS = (
     "source_code",
@@ -221,8 +222,8 @@ def import_errors_csv(batch_id: int) -> Iterator[str]:
 
 def compare_csv(flt: CompareFilter) -> Iterator[str]:
     def rows(session: Session) -> Iterator[Sequence[Any]]:
-        compare_repo.materialize(session, flt.from_label, flt.to_label)
-        for row in compare_repo.iter_rows(session, flt):
+        cache_key = compare_service.prepare(session, flt)
+        for row in compare_repo.iter_rows(session, flt, cache_key):
             yield [row[h] for h in COMPARE_HEADERS]
 
     return _with_session(rows, COMPARE_HEADERS)

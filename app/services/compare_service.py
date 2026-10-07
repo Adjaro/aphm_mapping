@@ -1,5 +1,6 @@
 """Onglet « Comparer » : tableau de bord et liste par code entre deux releases."""
 
+import hashlib
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -96,25 +97,21 @@ _cache_lock = Lock()
 def clear_compare_cache() -> None:
     with _cache_lock:
         _compare_cache.clear()
+        _dashboard_cache.clear()
 
 
 def compare(session: Session, flt: CompareFilter) -> CompareOut:
     if flt.from_label == flt.to_label:
         raise BusinessError("Choisir deux releases différentes.")
     with session.begin():
-        key = (
-            flt.from_label,
-            flt.to_label,
-            compare_repo.data_version(session, flt.from_label),
-            compare_repo.data_version(session, flt.to_label),
-            flt.model_dump_json(),
-        )
+        cache_key = pair_cache_key(session, flt.from_label, flt.to_label)
+    key = (flt.from_label, flt.to_label, cache_key, "", flt.model_dump_json())
     with _cache_lock:
         cached = _compare_cache.get(key)
         if cached is not None:
             _compare_cache.move_to_end(key)
             return cached
-    result = _compare(session, flt)
+    result = _compare(session, flt, cache_key)
     with _cache_lock:
         _compare_cache[key] = result
         while len(_compare_cache) > COMPARE_CACHE_SIZE:
@@ -122,20 +119,56 @@ def compare(session: Session, flt: CompareFilter) -> CompareOut:
     return result
 
 
-def _compare(session: Session, flt: CompareFilter) -> CompareOut:
+def pair_cache_key(session: Session, from_label: str, to_label: str) -> str:
+    """Clé du cache PostgreSQL : les deux releases et l'empreinte de leurs données."""
+    parts = (
+        from_label,
+        to_label,
+        compare_repo.data_version(session, from_label),
+        compare_repo.data_version(session, to_label),
+    )
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def prepare(session: Session, flt: CompareFilter) -> str:
+    """Vérifie les releases et calcule la comparaison si elle n'est pas en cache ; renvoie la clé."""
+    for label in (flt.from_label, flt.to_label):
+        if release_repo.get_by_label(session, label) is None:
+            raise BusinessError(f"Release {label} introuvable.")
+    cache_key = pair_cache_key(session, flt.from_label, flt.to_label)
+    compare_repo.ensure_cached(session, cache_key, flt.from_label, flt.to_label)
+    return cache_key
+
+
+# Tableau de bord d'une paire (indépendant des filtres et de la page), par clé du cache PostgreSQL
+_dashboard_cache: OrderedDict[str, tuple[Any, ...]] = OrderedDict()
+
+
+def _dashboard(session: Session, flt: CompareFilter, cache_key: str) -> tuple[Any, ...]:
+    with _cache_lock:
+        cached = _dashboard_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    dashboard = (
+        compare_repo.release_sizes(session, flt.from_label, flt.to_label),
+        compare_repo.matrix(session, cache_key),
+        compare_repo.status_transitions(session, cache_key),
+        compare_repo.line_stats(session, cache_key),
+        compare_repo.line_origins(session, cache_key, flt.from_label, flt.to_label),
+    )
+    with _cache_lock:
+        _dashboard_cache[cache_key] = dashboard
+        while len(_dashboard_cache) > compare_repo.CACHE_SIZE:
+            _dashboard_cache.popitem(last=False)
+    return dashboard
+
+
+def _compare(session: Session, flt: CompareFilter, cache_key: str) -> CompareOut:
     with session.begin():
-        for label in (flt.from_label, flt.to_label):
-            if release_repo.get_by_label(session, label) is None:
-                raise BusinessError(f"Release {label} introuvable.")
-        compare_repo.materialize(session, flt.from_label, flt.to_label)
-        sizes = compare_repo.release_sizes(session, flt.from_label, flt.to_label)
-        matrix_rows = compare_repo.matrix(session)
-        transitions = compare_repo.status_transitions(session)
-        facet_rows = compare_repo.facets(session, flt)
-        rows = compare_repo.rows(session, flt, PAGE_SIZE, (flt.page - 1) * PAGE_SIZE)
-        compare_repo.materialize_lines(session, flt.from_label, flt.to_label)
-        stats = compare_repo.line_stats(session)
-        origins = compare_repo.line_origins(session, flt.from_label, flt.to_label)
+        cache_key = prepare(session, flt)
+        sizes, matrix_rows, transitions, stats, origins = _dashboard(session, flt, cache_key)
+        facet_rows = compare_repo.facets(session, flt, cache_key)
+        rows = compare_repo.rows(session, flt, cache_key, PAGE_SIZE, (flt.page - 1) * PAGE_SIZE)
     total = int(rows[0]["total"]) if rows else 0
     kind_totals, matrix = _matrix(matrix_rows)
     facets = _facets(flt, facet_rows)

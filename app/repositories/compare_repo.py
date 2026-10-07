@@ -1,6 +1,10 @@
-"""Comparaison de deux releases par code source (mapping.diff_codes).
+"""Comparaison de deux releases : lignes (mapping.diff_releases) et vue par code source.
 
-Le résultat est matérialisé une fois par transaction dans tmp_diff_codes, puis agrégé.
+Le diff des lignes est calculé UNE fois par paire de releases (et par empreinte de leurs données),
+stocké dans le cache mapping.compare_cache_lines (migration 14), puis relu pour chaque page,
+filtre ou export. La vue par code (compare_cache_codes) en est déduite avec les mêmes règles que
+mapping.diff_codes (08) — vérifié par les tests. Les cibles avant / après ne sont chargées que
+pour les codes affichés ou exportés.
 """
 
 from collections.abc import Iterator, Sequence
@@ -13,15 +17,94 @@ from app.schemas.compare import CompareFilter
 
 MATERIALIZE_SQL = text(
     """
-    CREATE TEMP TABLE tmp_diff_codes ON COMMIT DROP AS
-    SELECT *
-      FROM mapping.diff_codes(:from_label, :to_label)
+    INSERT INTO mapping.compare_cache_codes (
+        cache_key, change_kind, source_vocabulary_id, source_code, source_code_description,
+        n_added, n_removed, n_modified, changed_fields
+    )
+    WITH ids AS (
+        SELECT (SELECT release_id FROM mapping.release WHERE label = :from_label) AS id_from,
+               (SELECT release_id FROM mapping.release WHERE label = :to_label)   AS id_to
+    ),
+    c AS (
+        SELECT d.source_vocabulary_id,
+               d.source_code,
+               (count(*) FILTER (WHERE d.change_type = 'ADDED'))::int    AS n_added,
+               (count(*) FILTER (WHERE d.change_type = 'REMOVED'))::int  AS n_removed,
+               (count(*) FILTER (WHERE d.change_type = 'MODIFIED'))::int AS n_modified,
+               max(coalesce(d.new_row ->> 'source_code_description',
+                            d.old_row ->> 'source_code_description'))    AS source_code_description
+          FROM mapping.compare_cache_lines d
+         WHERE d.cache_key = :cache_key
+         GROUP BY d.source_vocabulary_id, d.source_code
+    ),
+    f AS (
+        SELECT d.source_vocabulary_id,
+               d.source_code,
+               array_agg(DISTINCT k ORDER BY k) AS fields
+          FROM mapping.compare_cache_lines d
+         CROSS JOIN LATERAL unnest(d.changed_fields) AS k
+         WHERE d.cache_key = :cache_key
+         GROUP BY d.source_vocabulary_id, d.source_code
+    )
+    SELECT :cache_key,
+           CASE
+               WHEN NOT EXISTS (
+                    SELECT 1 FROM mapping.source_to_concept_map o
+                     WHERE o.release_id = ids.id_from
+                       AND o.source_vocabulary_id = c.source_vocabulary_id
+                       AND o.source_code = c.source_code)          THEN 'NEW_CODE'
+               WHEN NOT EXISTS (
+                    SELECT 1 FROM mapping.source_to_concept_map n
+                     WHERE n.release_id = ids.id_to
+                       AND n.source_vocabulary_id = c.source_vocabulary_id
+                       AND n.source_code = c.source_code)          THEN 'REMOVED_CODE'
+               WHEN c.n_added > 0 OR c.n_removed > 0                THEN 'TARGET_CHANGED'
+               ELSE 'MODIFIED'
+           END                                      AS change_kind,
+           c.source_vocabulary_id,
+           c.source_code,
+           c.source_code_description,
+           c.n_added,
+           c.n_removed,
+           c.n_modified,
+           coalesce(f.fields, ARRAY[]::text[])      AS changed_fields
+      FROM c
+     CROSS JOIN ids
+      LEFT JOIN f
+             ON f.source_vocabulary_id = c.source_vocabulary_id
+            AND f.source_code          = c.source_code
     """
+)
+
+# Cibles d'un code dans une release (comme old_targets / new_targets de mapping.diff_codes)
+TARGETS_SUBQUERY = """
+    (SELECT jsonb_agg(
+                jsonb_build_object(
+                    'target_concept_id', s.target_concept_id,
+                    'relationship_id',   s.relationship_id,
+                    'mapping_status',    s.mapping_status,
+                    'concept_name',      co.concept_name
+                )
+                ORDER BY s.relationship_id, s.target_concept_id
+            )
+       FROM mapping.source_to_concept_map s
+       LEFT JOIN vocab.concept co ON co.concept_id = s.target_concept_id
+      WHERE s.release_id = (SELECT release_id FROM mapping.release WHERE label = {label})
+        AND s.source_vocabulary_id = p.source_vocabulary_id
+        AND s.source_code = p.source_code)
+"""
+WITH_TARGETS = (
+    "p.*, "
+    + TARGETS_SUBQUERY.replace("{label}", ":from_label")
+    + " AS old_targets, "
+    + TARGETS_SUBQUERY.replace("{label}", ":to_label")
+    + " AS new_targets"
 )
 
 # Filtres statiques : listes vides = pas de filtre ; chaque facette peut être ignorée (:skip_*)
 FILTER_CLAUSE = """
-     WHERE (:query = '' OR c.source_code ILIKE :pattern ESCAPE '\\'
+     WHERE c.cache_key = :cache_key
+       AND (:query = '' OR c.source_code ILIKE :pattern ESCAPE '\\'
             OR c.source_code_description ILIKE :pattern ESCAPE '\\')
        AND (:skip_kind OR cardinality(CAST(:change_kind AS text[])) = 0
             OR c.change_kind = ANY(:change_kind))
@@ -34,21 +117,21 @@ FILTER_CLAUSE = """
 FACETS_SQL = text(
     """
     SELECT 'change_kind' AS facet, c.change_kind AS value, count(*) AS n
-      FROM tmp_diff_codes c
+      FROM mapping.compare_cache_codes c
     """
     + FILTER_CLAUSE.replace(":skip_kind", "true")
     + """
      GROUP BY c.change_kind
     UNION ALL
     SELECT 'source_vocabulary', c.source_vocabulary_id, count(*)
-      FROM tmp_diff_codes c
+      FROM mapping.compare_cache_codes c
     """
     + FILTER_CLAUSE.replace(":skip_vocab", "true")
     + """
      GROUP BY c.source_vocabulary_id
     UNION ALL
     SELECT 'field', f, count(*)
-      FROM tmp_diff_codes c
+      FROM mapping.compare_cache_codes c
      CROSS JOIN LATERAL unnest(c.changed_fields) AS f
     """
     + FILTER_CLAUSE.replace(":skip_field", "true")
@@ -59,35 +142,84 @@ FACETS_SQL = text(
 )
 
 ROWS_SQL = text(
-    """
-    SELECT c.*,
-           count(*) OVER () AS total
-      FROM tmp_diff_codes c
+    "SELECT "
+    + WITH_TARGETS
+    + """
+      FROM (SELECT c.*,
+                   count(*) OVER () AS total
+              FROM mapping.compare_cache_codes c
     """
     + FILTER_CLAUSE
     + """
-     ORDER BY c.source_vocabulary_id, c.source_code
-     LIMIT :limit OFFSET :offset
+             ORDER BY c.source_vocabulary_id, c.source_code
+             LIMIT :limit OFFSET :offset) p
+     ORDER BY p.source_vocabulary_id, p.source_code
     """
 )
 
+# Export : cibles des codes exportés chargées en une seule requête groupée (pas une sous-requête par code)
 EXPORT_SQL = text(
     """
-    SELECT c.*
-      FROM tmp_diff_codes c
+    WITH p AS (
+        SELECT c.*
+          FROM mapping.compare_cache_codes c
     """
     + FILTER_CLAUSE
     + """
-     ORDER BY c.source_vocabulary_id, c.source_code
+    ),
+    ids AS (
+        SELECT (SELECT release_id FROM mapping.release WHERE label = :from_label) AS id_from,
+               (SELECT release_id FROM mapping.release WHERE label = :to_label)   AS id_to
+    ),
+    tg AS (
+        SELECT s.release_id,
+               s.source_vocabulary_id,
+               s.source_code,
+               jsonb_agg(
+                   jsonb_build_object(
+                       'target_concept_id', s.target_concept_id,
+                       'relationship_id',   s.relationship_id,
+                       'mapping_status',    s.mapping_status,
+                       'concept_name',      co.concept_name
+                   )
+                   ORDER BY s.relationship_id, s.target_concept_id
+               ) AS targets
+          FROM mapping.source_to_concept_map s
+          JOIN p
+            ON p.source_vocabulary_id = s.source_vocabulary_id
+           AND p.source_code          = s.source_code
+          LEFT JOIN vocab.concept co ON co.concept_id = s.target_concept_id
+         WHERE s.release_id IN (SELECT id_from FROM ids UNION ALL SELECT id_to FROM ids)
+         GROUP BY s.release_id, s.source_vocabulary_id, s.source_code
+    )
+    SELECT p.*,
+           o.targets AS old_targets,
+           n.targets AS new_targets
+      FROM p
+     CROSS JOIN ids
+      LEFT JOIN tg o
+             ON o.release_id           = ids.id_from
+            AND o.source_vocabulary_id = p.source_vocabulary_id
+            AND o.source_code          = p.source_code
+      LEFT JOIN tg n
+             ON n.release_id           = ids.id_to
+            AND n.source_vocabulary_id = p.source_vocabulary_id
+            AND n.source_code          = p.source_code
+     ORDER BY p.source_vocabulary_id, p.source_code
     """
 ).execution_options(yield_per=5000)
+
+# Plans par hachage pour les gros exports (estimations imprécises sur le cache)
+EXPORT_SETTINGS = (text("SET LOCAL enable_nestloop = off"), text("SET LOCAL work_mem = '64MB'"))
+
 
 MATRIX_SQL = text(
     """
     SELECT c.source_vocabulary_id,
            c.change_kind,
            count(*) AS n
-      FROM tmp_diff_codes c
+      FROM mapping.compare_cache_codes c
+     WHERE c.cache_key = :cache_key
      GROUP BY c.source_vocabulary_id, c.change_kind
      ORDER BY c.source_vocabulary_id
     """
@@ -95,17 +227,13 @@ MATRIX_SQL = text(
 
 STATUS_TRANSITIONS_SQL = text(
     """
-    SELECT o ->> 'mapping_status' AS old_status,
-           n ->> 'mapping_status' AS new_status,
-           count(*)               AS n
-      FROM tmp_diff_codes c
-     CROSS JOIN LATERAL jsonb_array_elements(c.old_targets) AS o
-     CROSS JOIN LATERAL jsonb_array_elements(c.new_targets) AS n
-     WHERE c.old_targets IS NOT NULL
-       AND c.new_targets IS NOT NULL
-       AND o ->> 'target_concept_id' = n ->> 'target_concept_id'
-       AND o ->> 'relationship_id'   = n ->> 'relationship_id'
-       AND o ->> 'mapping_status'   <> n ->> 'mapping_status'
+    SELECT d.old_row ->> 'mapping_status' AS old_status,
+           d.new_row ->> 'mapping_status' AS new_status,
+           count(*)                       AS n
+      FROM mapping.compare_cache_lines d
+     WHERE d.cache_key = :cache_key
+       AND d.change_type = 'MODIFIED'
+       AND 'mapping_status' = ANY(d.changed_fields)
      GROUP BY 1, 2
      ORDER BY n DESC
     """
@@ -113,20 +241,31 @@ STATUS_TRANSITIONS_SQL = text(
 
 RELEASE_SIZES_SQL = text(
     """
+    WITH codes AS (
+        SELECT s.release_id,
+               count(*) AS n_mappings
+          FROM mapping.source_to_concept_map s
+         WHERE s.release_id IN (
+                SELECT release_id FROM mapping.release WHERE label IN (:from_label, :to_label))
+         GROUP BY s.release_id, s.source_vocabulary_id, s.source_code
+    )
     SELECT r.label,
-           count(s.stcm_id)                                         AS n_mappings,
-           count(DISTINCT (s.source_vocabulary_id, s.source_code)) AS n_codes
+           coalesce(sum(c.n_mappings), 0)::bigint AS n_mappings,
+           count(c.release_id)            AS n_codes
       FROM mapping.release r
-      LEFT JOIN mapping.source_to_concept_map s ON s.release_id = r.release_id
+      LEFT JOIN codes c ON c.release_id = r.release_id
      WHERE r.label IN (:from_label, :to_label)
      GROUP BY r.label
     """
 )
 
 
-def _params(flt: CompareFilter) -> dict[str, Any]:
+def _params(flt: CompareFilter, cache_key: str) -> dict[str, Any]:
     escaped = flt.query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return {
+        "cache_key": cache_key,
+        "from_label": flt.from_label,
+        "to_label": flt.to_label,
         "query": flt.query,
         "pattern": f"%{escaped}%",
         "change_kind": list(flt.change_kind),
@@ -138,29 +277,40 @@ def _params(flt: CompareFilter) -> dict[str, Any]:
     }
 
 
-def materialize(session: Session, from_label: str, to_label: str) -> None:
-    session.execute(MATERIALIZE_SQL, {"from_label": from_label, "to_label": to_label})
+def ensure_cached(session: Session, cache_key: str, from_label: str, to_label: str) -> bool:
+    """Calcule et met en cache la comparaison si elle ne l'est pas déjà ; True si calculée maintenant."""
+    params = {"cache_key": cache_key, "from_label": from_label, "to_label": to_label}
+    if session.execute(REGISTER_SQL, params).first() is None:
+        return False
+    session.execute(MATERIALIZE_LINES_SQL, params)
+    session.execute(MATERIALIZE_SQL, params)
+    session.execute(EVICT_SQL, {"keep": CACHE_SIZE})
+    return True
 
 
-def facets(session: Session, flt: CompareFilter) -> Sequence[RowMapping]:
-    return session.execute(FACETS_SQL, _params(flt)).mappings().all()
+def facets(session: Session, flt: CompareFilter, cache_key: str) -> Sequence[RowMapping]:
+    return session.execute(FACETS_SQL, _params(flt, cache_key)).mappings().all()
 
 
-def rows(session: Session, flt: CompareFilter, limit: int, offset: int) -> Sequence[RowMapping]:
-    params = {**_params(flt), "limit": limit, "offset": offset}
+def rows(
+    session: Session, flt: CompareFilter, cache_key: str, limit: int, offset: int
+) -> Sequence[RowMapping]:
+    params = {**_params(flt, cache_key), "limit": limit, "offset": offset}
     return session.execute(ROWS_SQL, params).mappings().all()
 
 
-def iter_rows(session: Session, flt: CompareFilter) -> Iterator[RowMapping]:
-    yield from session.execute(EXPORT_SQL, _params(flt)).mappings()
+def iter_rows(session: Session, flt: CompareFilter, cache_key: str) -> Iterator[RowMapping]:
+    for statement in EXPORT_SETTINGS:
+        session.execute(statement)
+    yield from session.execute(EXPORT_SQL, _params(flt, cache_key)).mappings()
 
 
-def matrix(session: Session) -> Sequence[RowMapping]:
-    return session.execute(MATRIX_SQL).mappings().all()
+def matrix(session: Session, cache_key: str) -> Sequence[RowMapping]:
+    return session.execute(MATRIX_SQL, {"cache_key": cache_key}).mappings().all()
 
 
-def status_transitions(session: Session) -> Sequence[RowMapping]:
-    return session.execute(STATUS_TRANSITIONS_SQL).mappings().all()
+def status_transitions(session: Session, cache_key: str) -> Sequence[RowMapping]:
+    return session.execute(STATUS_TRANSITIONS_SQL, {"cache_key": cache_key}).mappings().all()
 
 
 def release_sizes(session: Session, from_label: str, to_label: str) -> dict[str, RowMapping]:
@@ -169,42 +319,73 @@ def release_sizes(session: Session, from_label: str, to_label: str) -> dict[str,
 
 
 # ---------------------------------------------------------------------------
-# Métriques ligne à ligne (mapping.diff_releases), matérialisées dans tmp_diff_lines
+# Métriques ligne à ligne (mapping.diff_releases), lues dans le cache mapping.compare_cache_lines
 # ---------------------------------------------------------------------------
 
 MATERIALIZE_LINES_SQL = text(
     """
-    CREATE TEMP TABLE tmp_diff_lines ON COMMIT DROP AS
-    SELECT *
-      FROM mapping.diff_releases(:from_label, :to_label)
+    INSERT INTO mapping.compare_cache_lines (
+        cache_key, change_type, source_vocabulary_id, source_code, target_concept_id, relationship_id,
+        changed_fields, old_row, new_row
+    )
+    SELECT :cache_key, d.*
+      FROM mapping.diff_releases(:from_label, :to_label) d
     """
 )
+
+REGISTER_SQL = text(
+    """
+    INSERT INTO mapping.compare_cache (cache_key, from_label, to_label)
+    VALUES (:cache_key, :from_label, :to_label)
+    ON CONFLICT (cache_key) DO NOTHING
+    RETURNING cache_key
+    """
+)
+
+# Cache borné : seules les comparaisons les plus récentes sont conservées
+EVICT_SQL = text(
+    """
+    DELETE FROM mapping.compare_cache
+     WHERE cache_key NOT IN (
+            SELECT cache_key
+              FROM mapping.compare_cache
+             ORDER BY created_at DESC
+             LIMIT :keep)
+    """
+)
+
+CACHE_SIZE = 20
 
 LINE_STATS_SQL = text(
     """
     SELECT 'total' AS metric, d.change_type AS key, d.change_type AS change_type, count(*) AS n
-      FROM tmp_diff_lines d
+      FROM mapping.compare_cache_lines d
+     WHERE d.cache_key = :cache_key
      GROUP BY d.change_type
     UNION ALL
     SELECT 'vocabulary', d.source_vocabulary_id, d.change_type, count(*)
-      FROM tmp_diff_lines d
+      FROM mapping.compare_cache_lines d
+     WHERE d.cache_key = :cache_key
      GROUP BY d.source_vocabulary_id, d.change_type
     UNION ALL
     SELECT 'domain',
            coalesce(d.new_row ->> 'domain_id', d.old_row ->> 'domain_id', '(vide)'),
            d.change_type,
            count(*)
-      FROM tmp_diff_lines d
+      FROM mapping.compare_cache_lines d
+     WHERE d.cache_key = :cache_key
      GROUP BY 2, d.change_type
     UNION ALL
     SELECT 'field', f, 'MODIFIED', count(*)
-      FROM tmp_diff_lines d
+      FROM mapping.compare_cache_lines d
      CROSS JOIN LATERAL unnest(d.changed_fields) AS f
+     WHERE d.cache_key = :cache_key
      GROUP BY f
     UNION ALL
     SELECT 'review', d.new_row ->> 'mapping_status', d.change_type, count(*)
-      FROM tmp_diff_lines d
-     WHERE d.change_type IN ('ADDED', 'MODIFIED')
+      FROM mapping.compare_cache_lines d
+     WHERE d.cache_key = :cache_key
+       AND d.change_type IN ('ADDED', 'MODIFIED')
        AND d.new_row ->> 'mapping_status' <> 'APPROVED'
      GROUP BY 2, d.change_type
     """
@@ -226,7 +407,7 @@ LINE_ORIGINS_SQL = text(
                    WHEN d.change_type = 'ADDED' OR nb.import_batch_id IS DISTINCT FROM ob.import_batch_id
                    THEN nb.import_batch_id
                END AS import_batch_id
-          FROM tmp_diff_lines d
+          FROM mapping.compare_cache_lines d
          CROSS JOIN ids
           LEFT JOIN mapping.source_to_concept_map nb
                  ON nb.release_id           = ids.id_to
@@ -240,6 +421,7 @@ LINE_ORIGINS_SQL = text(
                 AND ob.source_code          = d.source_code
                 AND ob.target_concept_id    = d.target_concept_id
                 AND ob.relationship_id      = d.relationship_id
+         WHERE d.cache_key = :cache_key
     )
     SELECT o.import_batch_id,
            b.file_name,
@@ -257,16 +439,12 @@ LINE_ORIGINS_SQL = text(
 )
 
 
-def materialize_lines(session: Session, from_label: str, to_label: str) -> None:
-    session.execute(MATERIALIZE_LINES_SQL, {"from_label": from_label, "to_label": to_label})
+def line_stats(session: Session, cache_key: str) -> Sequence[RowMapping]:
+    return session.execute(LINE_STATS_SQL, {"cache_key": cache_key}).mappings().all()
 
 
-def line_stats(session: Session) -> Sequence[RowMapping]:
-    return session.execute(LINE_STATS_SQL).mappings().all()
-
-
-def line_origins(session: Session, from_label: str, to_label: str) -> Sequence[RowMapping]:
-    params = {"from_label": from_label, "to_label": to_label}
+def line_origins(session: Session, cache_key: str, from_label: str, to_label: str) -> Sequence[RowMapping]:
+    params = {"cache_key": cache_key, "from_label": from_label, "to_label": to_label}
     return session.execute(LINE_ORIGINS_SQL, params).mappings().all()
 
 

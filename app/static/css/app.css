@@ -122,3 +122,7 @@ mark { padding: 0 .1em; background: #fff3a3; border-radius: .15rem; }
 
 /* Statut validé : discret (seuls les mappings à traiter sont mis en évidence) */
 .ref-status-approved { color: var(--ref-approved); font-size: .78rem; white-space: nowrap; }
+
+/* Indicateur de calcul (comparaison) */
+.ref-loading-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(248, 249, 250, .75);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--ref-navbar-bg); }
