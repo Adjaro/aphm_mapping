@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% set nav = 'advanced' %}
+{% block title %}API — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-3">
+  <div class="ref-api-logo"><i class="bi bi-braces-asterisk"></i></div>
+  <div>
+    <h1 class="h4 mb-0">API du référentiel</h1>
+    <div class="text-secondary small">Points d'accès en lecture pour le pipeline ETL (dbt, scripts). Pas d'authentification.
+      Schéma OpenAPI : <a href="/api/openapi.json"><code>/api/openapi.json</code></a></div>
+  </div>
+</div>
+
+{% set base = request.base_url|string %}
+{% set endpoints = [
+  ('GET', '/api/releases', 'Liste des releases (statut, parente, build CDM, volumétrie)', 'JSON', '/api/releases'),
+  ('GET', '/api/releases/{label}/source_to_concept_map.csv', 'source_to_concept_map au format CDM v5.4 strict (mappings IGNORED exclus)', 'CSV', '/api/releases/' ~ example ~ '/source_to_concept_map.csv'),
+  ('GET', '/api/releases/{label}/properties.zip', 'Un fichier <Domaine>.properties par domaine (code=cible[,cible…]) ; IGNORED et cibles 0 exclus', 'ZIP', '/api/releases/' ~ example ~ '/properties.zip'),
+] %}
+<div class="row g-3">
+  {% for method, path, description, kind, sample in endpoints %}
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="mb-2"><span class="badge text-bg-success">{{ method }}</span> <span class="badge text-bg-light border">{{ kind }}</span></div>
+        <code class="d-block text-break mb-2">{{ path }}</code>
+        <p class="small text-secondary mb-2">{{ description }}</p>
+        <div class="small">Exemple :</div>
+        <code class="d-block text-break small mb-2">curl -OJ {{ base.rstrip('/') }}{{ sample }}</code>
+        <a class="btn btn-sm btn-outline-primary" href="{{ sample }}"><i class="bi bi-box-arrow-up-right"></i> Essayer</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mt-3"><div class="card-header py-1">Exemples d'intégration</div><div class="card-body small">
+  <div class="mb-1">Dernière release publiée (Python) :</div>
+<pre class="bg-light border rounded p-2 mb-3"><code>import requests
+releases = requests.get("{{ base.rstrip('/') }}/api/releases").json()
+latest = next(r for r in releases if r["status"] == "published")
+csv = requests.get(f"{{ base.rstrip('/') }}/api/releases/{latest['label']}/source_to_concept_map.csv").text</code></pre>
+  <div class="mb-1">Consommation directe en base par dbt : vue <code>mapping.v_stcm_published</code> (dernière release publiée, format CDM).</div>
+</div></div>
+{% endblock %}

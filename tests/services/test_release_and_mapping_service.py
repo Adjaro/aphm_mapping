@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.schemas.custom_column import CustomColumnIn
 from app.schemas.mapping import MappingEditIn
-from app.services import custom_column_service, mapping_service, release_service, search_service
+from app.services import (
+    compare_service,
+    custom_column_service,
+    mapping_service,
+    release_service,
+    search_service,
+)
 from app.services.errors import BusinessError
 from tests.conftest import add_mapping, sql
 
@@ -112,3 +118,10 @@ def test_detail_history_marks_changes(session: Session) -> None:
         "reviewed_by",
     ]
     assert detail.audit[0].changes[0] == ("mapping_status", "UNCHECKED", "FLAGGED")
+
+
+def test_compare_defaults_skip_archived_staging(session: Session) -> None:
+    _cycle(session)
+    assert compare_service.default_labels(session) == ("v1.0", "v1.1")
+    release_service.promote(session, "v1.1", "v2.0", "x")
+    assert compare_service.default_labels(session) == ("v1.0", "v2.0")

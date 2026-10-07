@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/vendor/bootstrap/css/bootstrap.min.css">
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/static/css/app.css">
@@ -20,26 +21,48 @@
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="ref-nav">
+      {% set rq = '?release=' ~ release_param if release_param else '' %}
+      {% set advanced = nav in ('athena', 'quality', 'settings', 'advanced') %}
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link {% if nav == 'search' %}active{% endif %}"
-             href="/search-terms/terms{% if release_param %}?release={{ release_param }}{% endif %}">
-            <i class="bi bi-search"></i> Recherche</a>
+          <a class="nav-link {% if nav == 'search' %}active{% endif %}" href="/search-terms/terms{{ rq }}"
+             title="Rechercher un code, une description ou un concept cible"><i class="bi bi-search"></i> Recherche</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if nav == 'imports' %}active{% endif %}" href="/imports"><i class="bi bi-upload"></i> Import</a>
+          <a class="nav-link {% if nav == 'imports' %}active{% endif %}" href="/imports"
+             title="Charger un fichier CSV ou Excel dans la release ouverte"><i class="bi bi-upload"></i> Import</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if nav == 'releases' %}active{% endif %}" href="/releases"><i class="bi bi-tags"></i> Releases</a>
+          <a class="nav-link {% if nav == 'releases' %}active{% endif %}" href="/releases"
+             title="Versions : staging, promotion, publication"><i class="bi bi-tags"></i> Releases</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if nav == 'quality' %}active{% endif %}"
-             href="/quality{% if release_param %}?release={{ release_param }}{% endif %}">
-            <i class="bi bi-clipboard-check"></i> Qualité</a>
+          <a class="nav-link {% if nav == 'export' %}active{% endif %}" href="/export{{ rq }}"
+             title="Exporter une release : properties, CSV CDM, CSV complet"><i class="bi bi-download"></i> Export</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if nav == 'settings' %}active{% endif %}" href="/settings/custom-columns">
-            <i class="bi bi-sliders"></i> Colonnes</a>
+          <a class="nav-link {% if nav == 'compare' %}active{% endif %}" href="/compare"
+             title="Différences entre deux versions"><i class="bi bi-arrow-left-right"></i> Comparer</a>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if advanced %}active{% endif %}" href="#" role="button"
+             data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-gear"></i> Avancé</a>
+          <ul class="dropdown-menu ref-advanced-menu">
+            <li><h6 class="dropdown-header">Analyse</h6></li>
+            <li><a class="dropdown-item {% if nav == 'athena' %}active{% endif %}" href="/athena{{ rq }}">
+              <i class="bi bi-bullseye"></i> Comparaison Athena<small>nos mappings face aux « Maps to » natifs</small></a></li>
+            <li><a class="dropdown-item {% if nav == 'quality' %}active{% endif %}" href="/quality{{ rq }}">
+              <i class="bi bi-clipboard-check"></i> Qualité des cibles<small>concepts introuvables, non standards…</small></a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Paramètres</h6></li>
+            <li><a class="dropdown-item" href="/settings/athena">
+              <i class="bi bi-database-gear"></i> Base Athena<small>connexion et synchronisation</small></a></li>
+            <li><a class="dropdown-item" href="/settings/custom-columns">
+              <i class="bi bi-layout-three-columns"></i> Colonnes personnalisées<small>champs supplémentaires des mappings</small></a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item {% if nav == 'advanced' %}active{% endif %}" href="/api">
+              <i class="bi bi-braces-asterisk"></i> API<small>points d'accès pour le pipeline ETL</small></a></li>
+          </ul>
         </li>
       </ul>
       <div class="d-flex align-items-center gap-2">

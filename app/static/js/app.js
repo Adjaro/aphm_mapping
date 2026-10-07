@@ -8,7 +8,7 @@
     if (!select || !select.value) return;
     var url = new URL(window.location.href);
     if (url.pathname.indexOf("/imports") === 0 || url.pathname.indexOf("/releases") === 0
-        || url.pathname.indexOf("/settings") === 0) {
+        || url.pathname.indexOf("/settings") === 0 || url.pathname.indexOf("/compare") === 0) {
       url = new URL("/search-terms/terms", window.location.origin);
     }
     url.searchParams.set("release", select.value);

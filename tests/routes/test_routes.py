@@ -1,12 +1,16 @@
 """Routes principales : statut 200, fragments HTMX, assistant d'import, actions de release, exports."""
 
 import re
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.services import release_service
-from tests.conftest import add_mapping, sql
+from tests.conftest import _TEST_URL, add_mapping, sql
 
 HX = {"HX-Request": "true"}
 
@@ -190,3 +194,96 @@ def test_custom_columns_page(client: TestClient, session: Session) -> None:
     )
     assert created.status_code == 303
     assert sql(session, "SELECT allowed_values FROM mapping.custom_column") == [(["mg", "g"],)]
+
+
+def test_compare_and_athena_pages(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    sql(
+        session,
+        """
+        UPDATE mapping.source_to_concept_map s SET mapping_status = 'APPROVED'
+          FROM mapping.release r
+         WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'GLU'
+        """,
+    )
+    page = client.get("/compare")
+    assert page.status_code == 200
+    assert "Autre modification" in page.text and "GLU" in page.text
+    assert (
+        client.get("/compare?from=v1.0&to=v1.1&change_kind=MODIFIED&field=mapping_status").status_code == 200
+    )
+    assert "Choisir deux releases" in client.get("/compare?from=v1.0&to=v1.0").text
+    export = client.get("/compare/export.csv?from=v1.0&to=v1.1")
+    assert "MODIFIED;LABO;GLU" in export.text
+    assert client.get("/athena?release=v1.1").status_code == 200
+    assert client.get("/athena/export.csv?release=v1.1").status_code == 200
+    assert client.get("/settings/athena").status_code == 200
+
+
+def test_athena_settings_forms(client: TestClient, session: Session) -> None:
+    invalid = client.post(
+        "/settings/athena/connections", data={"label": "x", "host": "h", "schema_name": "bad name"}
+    )
+    assert invalid.status_code == 422 and "is-invalid" in invalid.text
+    created = client.post(
+        "/settings/athena/connections",
+        data={
+            "label": "Athena",
+            "host": "127.0.0.1",
+            "port": str(make_url(_TEST_URL).port or 5432),
+            "database_name": "base_absente",
+            "username": "u",
+            "password": "secret",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    page = client.get("/settings/athena")
+    assert "secret" not in page.text and "mot de passe enregistré" in page.text
+    saved = client.post(
+        "/settings/athena/vocabulary-map",
+        data={"source_vocabulary_id": "ICD10", "athena_vocabulary_id": "CIM10", "ignore_dots": "on"},
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    assert sql(session, "SELECT ignore_dots, ignore_case FROM mapping.athena_vocabulary_map") == [
+        (True, False)
+    ]
+    failed = client.post("/settings/athena/connections/1/test", follow_redirects=False)
+    assert "error=" in failed.headers["location"]
+
+
+def test_author_cookie_is_decoded(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    client.cookies.set("ref_user", "Jean%20Dupont")
+    assert 'value="Jean Dupont"' in client.get("/").text
+
+
+def test_export_page_download_and_write(
+    client: TestClient, session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cycle(session)
+    monkeypatch.setattr(get_settings(), "export_dir", tmp_path)
+    page = client.get("/export?release=v1.0")
+    assert page.status_code == 200 and "Écrire dans le dossier du serveur" in page.text
+    csv_page = client.get("/export?release=v1.0&format=csv_full&source_vocabulary=LABO")
+    assert "Télécharger le CSV" in csv_page.text
+    archive = client.get("/export/download?release=v1.0&format=properties")
+    assert archive.headers["content-type"] == "application/zip"
+    cdm = client.get("/export/download?release=v1.0&format=csv_cdm&source_vocabulary=UNIT")
+    assert cdm.text.splitlines()[1].startswith("/mL,0,UNIT")
+    written = client.post(
+        "/export/write",
+        data={"release": "v1.0", "format": "properties", "source_vocabulary": "LABO"},
+        headers=HX,
+    )
+    assert written.status_code == 204 and "notice=" in written.headers["HX-Redirect"]
+    assert (tmp_path / "30_properties" / "Measurement.properties").read_text(encoding="utf-8") == "GLU=1001\n"
+
+
+def test_api_page_and_properties_endpoint(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    page = client.get("/api")
+    assert page.status_code == 200 and "properties.zip" in page.text and "cdn" not in page.text.lower()
+    assert client.get("/api/releases/v1.0/properties.zip").headers["content-type"] == "application/zip"
+    assert client.get("/api/docs").status_code == 404  # Swagger UI (CDN) désactivé

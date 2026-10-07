@@ -11,7 +11,7 @@ from app.db import get_session
 from app.routes.deps import current_user, not_found, redirect, render, render_fragment
 from app.schemas.imports import EQUIVALENCES, MAPPING_STATUSES, RELATIONSHIPS
 from app.schemas.mapping import MappingEditIn
-from app.services import mapping_service, release_service, search_service
+from app.services import athena_service, mapping_service, release_service, search_service
 from app.services.errors import BusinessError
 from app.templating import quote_path
 
@@ -120,4 +120,6 @@ def mapping_detail(
     detail = search_service.mapping_detail(session, current, source_vocabulary_id, source_code)
     if detail is None:
         return not_found(request, session, f"Code {source_code} ({source_vocabulary_id}) introuvable.")
-    return render(request, session, "pages/mapping_detail.html", {"detail": detail}, current)
+    athena_targets = athena_service.code_targets(session, source_vocabulary_id, source_code)
+    context = {"detail": detail, "athena_targets": athena_targets}
+    return render(request, session, "pages/mapping_detail.html", context, current)

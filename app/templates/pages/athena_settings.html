@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% set nav = 'settings' %}
+{% set st = settings %}
+{% block title %}Base Athena — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<h1 class="h4">Base Athena</h1>
+<p class="small text-secondary">La base Athena (tables <code>concept</code>, <code>concept_relationship</code>, <code>vocabulary</code>) sert de
+  référence pour comparer nos mappings aux relations natives « Maps to ». La synchronisation en copie une extraction
+  locale ; la comparaison fonctionne ensuite même si la base Athena est indisponible.
+  <strong>Utiliser un compte en lecture seule</strong> : le mot de passe est stocké dans le référentiel.</p>
+{% if form_error %}<div class="alert alert-danger py-2">{{ form_error }}</div>{% endif %}
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="card mb-3"><div class="card-header py-1">1. Connexions enregistrées</div>
+    <div class="table-responsive"><table class="table table-sm mb-0 align-middle">
+      <thead class="table-light"><tr><th>Libellé</th><th>Serveur</th><th>Schéma</th><th>Dernière synchro</th><th></th></tr></thead>
+      <tbody>
+      {% for c in st.connections %}
+        <tr>
+          <td>{% if c.is_active %}<span class="badge text-bg-success">active</span>{% endif %} <strong>{{ c.label }}</strong></td>
+          <td class="small">{{ c.username }}@{{ c.host }}:{{ c.port }}/{{ c.database_name }} <span class="text-secondary">· mot de passe {{ 'enregistré' if c.password else 'vide' }}</span></td>
+          <td><code>{{ c.schema_name }}</code></td>
+          <td class="small">
+            {% if c.last_sync_at %}{{ c.last_sync_at|fmt_dt }}
+              {% if c.last_sync_status == 'ok' %}<span class="text-success">· {{ c.last_sync_rows|fmt_int }} lignes</span>
+              {% else %}<span class="text-danger" title="{{ c.last_sync_message }}">· échec</span>{% endif %}
+              {% if c.athena_vocabulary_version %}<div class="text-secondary">{{ c.athena_vocabulary_version }}</div>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-nowrap">
+            <form class="d-inline" method="post" action="/settings/athena/connections/{{ c.athena_connection_id }}/test">
+              <button class="btn btn-sm btn-outline-secondary" title="Tester la connexion"><i class="bi bi-plug"></i> Tester</button></form>
+            {% if not c.is_active %}
+            <form class="d-inline" method="post" action="/settings/athena/connections/{{ c.athena_connection_id }}/activate">
+              <button class="btn btn-sm btn-outline-success">Activer</button></form>
+            {% endif %}
+            <form class="d-inline" hx-post="/settings/athena/connections/{{ c.athena_connection_id }}/delete"
+                  hx-confirm="Supprimer la connexion « {{ c.label }} » ? La copie locale déjà synchronisée est conservée.">
+              <button class="btn btn-sm btn-link text-danger p-0 ms-1" title="Supprimer"><i class="bi bi-trash"></i></button></form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-secondary py-3">Aucune connexion enregistrée.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div></div>
+
+    <div class="card mb-3"><div class="card-header py-1">2. Correspondance des vocabulaires</div>
+    <div class="card-body py-2">
+      <p class="small text-secondary mb-2">Chaque vocabulaire source local est rapproché d'un vocabulaire Athena par le code
+        (ex. ICD10 « A000 » ↔ CIM10 « A00.0 » en ignorant les points). Seuls les vocabulaires paramétrés sont synchronisés et comparés.</p>
+      <table class="table table-sm align-middle">
+        <thead class="table-light"><tr><th>Vocabulaire source</th><th>Vocabulaire Athena</th><th>Ignorer les points</th><th>Ignorer la casse</th><th></th></tr></thead>
+        <tbody>
+        {% for m in st.vocabulary_maps %}
+          <tr><td><code>{{ m.source_vocabulary_id }}</code></td><td><code>{{ m.athena_vocabulary_id }}</code></td>
+            <td>{{ 'oui' if m.ignore_dots else 'non' }}</td><td>{{ 'oui' if m.ignore_case else 'non' }}</td>
+            <td><form hx-post="/settings/athena/vocabulary-map/{{ m.source_vocabulary_id|quote_path }}/delete" hx-confirm="Supprimer la correspondance {{ m.source_vocabulary_id }} ?">
+              <button class="btn btn-sm btn-link text-danger p-0"><i class="bi bi-trash"></i></button></form></td></tr>
+        {% else %}<tr><td colspan="5" class="text-secondary">Aucune correspondance.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      <form method="post" action="/settings/athena/vocabulary-map" class="row g-2 align-items-end">
+        <div class="col-md-3"><label class="form-label small mb-0" for="ref-av-src">Vocabulaire source</label>
+          <input id="ref-av-src" name="source_vocabulary_id" list="ref-local-vocabs" maxlength="20" class="form-control form-control-sm" required>
+          <datalist id="ref-local-vocabs">{% for v in st.local_vocabularies %}<option value="{{ v }}">{% endfor %}</datalist></div>
+        <div class="col-md-3"><label class="form-label small mb-0" for="ref-av-ath">Vocabulaire Athena</label>
+          <input id="ref-av-ath" name="athena_vocabulary_id" maxlength="20" class="form-control form-control-sm" placeholder="ex. CIM10, CCAM, UCUM" required></div>
+        <div class="col-auto"><div class="form-check"><input class="form-check-input" type="checkbox" name="ignore_dots" id="ref-av-dots" checked>
+          <label class="form-check-label small" for="ref-av-dots">Ignorer les points</label></div></div>
+        <div class="col-auto"><div class="form-check"><input class="form-check-input" type="checkbox" name="ignore_case" id="ref-av-case" checked>
+          <label class="form-check-label small" for="ref-av-case">Ignorer la casse</label></div></div>
+        <div class="col-auto"><button class="btn btn-sm btn-primary">Enregistrer</button></div>
+      </form>
+    </div></div>
+
+    <div class="card"><div class="card-header py-1">3. Synchronisation</div>
+    <div class="card-body py-2">
+      {% if st.snapshot %}
+      <table class="table table-sm mb-2">
+        <thead class="table-light"><tr><th>Vocabulaire Athena</th><th class="text-end">Concepts copiés</th><th class="text-end">dont avec « Maps to »</th><th class="text-end">Relations</th></tr></thead>
+        {% for s in st.snapshot %}<tr><td>{{ s.vocabulary_id }}</td><td class="text-end">{{ s.n_concepts|fmt_int }}</td>
+          <td class="text-end">{{ s.n_mapped|fmt_int }}</td><td class="text-end">{{ s.n_relations|fmt_int }}</td></tr>{% endfor %}
+      </table>
+      {% else %}<p class="small text-secondary">Aucune donnée Athena copiée pour l'instant.</p>{% endif %}
+      <form hx-post="/settings/athena/sync" hx-disabled-elt="find button"
+            hx-confirm="Remplacer la copie locale par les « Maps to » actuels de la base Athena active ?">
+        <button class="btn btn-primary btn-sm" {% if not st.vocabulary_maps or not st.connections %}disabled{% endif %}>
+          <i class="bi bi-arrow-repeat"></i> Synchroniser depuis la base active
+          <span class="spinner-border spinner-border-sm htmx-indicator" aria-hidden="true"></span></button>
+      </form>
+      <a class="small" href="/athena">Voir la comparaison <i class="bi bi-arrow-right"></i></a>
+    </div></div>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card"><div class="card-header py-1">Nouvelle connexion</div><div class="card-body">
+      <form method="post" action="/settings/athena/connections" autocomplete="off">
+        {% for name, label, type, placeholder in [
+          ('label', 'Libellé', 'text', 'ex. Athena v5 2026-08'), ('host', 'Hôte', 'text', 'ex. srv-omop.aphm.local'),
+          ('port', 'Port', 'number', '5432'), ('database_name', 'Base', 'text', 'ex. athena'),
+          ('schema_name', 'Schéma', 'text', 'public'), ('username', 'Utilisateur', 'text', 'compte en lecture seule')] %}
+          <div class="mb-2"><label class="form-label small mb-0" for="ref-ac-{{ name }}">{{ label }}</label>
+            <input id="ref-ac-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ values.get(name, '') }}" placeholder="{{ placeholder }}"
+                   class="form-control form-control-sm {% if errors.get(name) %}is-invalid{% endif %}" {% if name not in ('port', 'schema_name') %}required{% endif %}>
+            {% if errors.get(name) %}<div class="invalid-feedback">{{ errors[name] }}</div>{% endif %}</div>
+        {% endfor %}
+        <div class="mb-2"><label class="form-label small mb-0" for="ref-ac-password">Mot de passe</label>
+          <input id="ref-ac-password" name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"></div>
+        <button class="btn btn-primary btn-sm">Enregistrer</button>
+        <div class="form-text">La première connexion enregistrée devient active.</div>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

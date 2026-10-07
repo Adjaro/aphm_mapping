@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% from "partials/_get_facets.html" import facet_panel %}
+{% from "partials/_badges.html" import status_badge, target_label %}
+{% set nav = 'athena' %}
+{% block title %}Comparaison Athena — {{ APP_NAME }}{% endblock %}
+{% block content %}
+{% set r = result %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="bi bi-bullseye"></i> Comparaison avec Athena — release {{ flt.release }}</h1>
+    <div class="small text-secondary">Nos mappings comparés aux relations natives « Maps to » / « Maps to value » d'Athena.</div>
+  </div>
+  <div class="small text-end">
+    {% if r.connection %}
+      Base : <strong>{{ r.connection.label }}</strong>
+      {% if r.connection.athena_vocabulary_version %}· {{ r.connection.athena_vocabulary_version }}{% endif %}<br>
+      {% if r.connection.last_sync_at %}Synchronisée le {{ r.connection.last_sync_at|fmt_dt }}
+        {% if r.connection.last_sync_status == 'failed' %}<span class="text-danger">(échec de la dernière tentative)</span>{% endif %}
+      {% else %}<span class="text-warning">Jamais synchronisée</span>{% endif %}
+    {% else %}<span class="text-warning">Aucune base Athena active</span>{% endif %}
+    · <a href="/settings/athena">Paramétrer</a>
+  </div>
+</div>
+
+{% if not r.configured %}
+<div class="alert alert-info">
+  Aucune correspondance de vocabulaire n'est paramétrée. Dans <a href="/settings/athena">Paramètres › Base Athena</a> :
+  enregistrer la connexion, associer chaque vocabulaire source à un vocabulaire Athena (ex. ICD10 → CIM10, UNIT → UCUM),
+  puis lancer la synchronisation.
+</div>
+{% endif %}
+
+<form method="get" action="/athena">
+<input type="hidden" name="release" value="{{ flt.release }}">
+{% set colors = {'SAME': 'text-success', 'DIFFERENT': 'text-danger', 'MISSING_LOCAL': 'text-warning', 'ATHENA_NO_MAPPING': 'text-secondary', 'CODE_NOT_IN_ATHENA': 'text-secondary'} %}
+<div class="row g-2 mb-3 text-center">
+  {% set compared = r.status_totals.values()|sum %}
+  {% for status, label in labels.items() %}
+    <div class="col-6 col-md"><a class="text-decoration-none" href="{{ flt.url(status=[status], page=1) }}"><div class="card h-100"><div class="card-body py-2">
+      <div class="ref-figure {{ colors[status] }}">{{ r.status_totals[status]|fmt_int }}</div>
+      <div class="small text-body">{{ label }}</div>
+      {% if compared %}<div class="small text-secondary">{{ (100 * r.status_totals[status] / compared)|round(1) }} %</div>{% endif %}
+    </div></div></a></div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-8">
+    <div class="card h-100"><div class="card-header py-1">Par vocabulaire source</div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Source</th><th>Athena</th>{% for status in labels %}<th class="text-end"><span class="{{ colors[status] }}">{{ status }}</span></th>{% endfor %}<th class="text-end">% identique</th></tr></thead>
+      <tbody>
+      {% for line in r.matrix %}
+        <tr><td><a href="{{ flt.url(source_vocabulary=[line.source_vocabulary_id], page=1) }}">{{ line.source_vocabulary_id }}</a></td>
+          <td>{{ line.athena_vocabulary_id }}</td>
+          {% for status in labels %}<td class="text-end">{{ line.get(status, 0)|fmt_int }}</td>{% endfor %}
+          <td class="text-end">{{ (100 * line.get('SAME', 0) / line.total)|round(1) if line.total else '—' }} %</td></tr>
+      {% else %}<tr><td colspan="8" class="text-center text-secondary">Aucun vocabulaire comparé.</td></tr>{% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card h-100"><div class="card-header py-1">Vocabulaires non paramétrés (non comparés)</div>
+    <table class="table table-sm mb-0">
+      {% for v in r.unconfigured %}<tr><td>{{ v.source_vocabulary_id }}</td><td class="text-end">{{ v.n|fmt_int }} mappings</td></tr>
+      {% else %}<tr><td class="text-secondary">Tous les vocabulaires sont paramétrés.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <aside class="col-lg-3">
+    <input type="search" name="query" value="{{ flt.query }}" class="form-control form-control-sm mb-2" placeholder="Code ou description" aria-label="Recherche">
+    {{ facet_panel(r.facets) }}
+  </aside>
+  <section class="col-lg-9">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div><strong>{{ r.total|fmt_int }}</strong> mapping{{ 's' if r.total > 1 }}
+        {% if flt.status or flt.source_vocabulary or flt.mapping_status or flt.query %}
+          — <a href="{{ flt.url(status=[], source_vocabulary=[], mapping_status=[], query='', page=1) }}">tout effacer</a>{% endif %}</div>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ flt.url('/athena/export.csv', page=None) }}"><i class="bi bi-download"></i> Exporter CSV</a>
+    </div>
+    <div class="table-responsive bg-white border rounded">
+    <table class="table table-sm table-hover mb-0 ref-results-table align-middle">
+      <thead class="table-light"><tr><th>Comparaison</th><th>Code source</th><th>Notre cible</th><th>Concept Athena</th><th>Cibles Athena</th></tr></thead>
+      <tbody>
+      {% set badge = {'SAME': 'text-bg-success', 'DIFFERENT': 'text-bg-danger', 'MISSING_LOCAL': 'text-bg-warning', 'ATHENA_NO_MAPPING': 'text-bg-secondary', 'CODE_NOT_IN_ATHENA': 'text-bg-light border'} %}
+      {% for row in r.rows %}
+        <tr data-href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">
+          <td><span class="badge {{ badge[row.comparison_status] }}" title="{{ labels[row.comparison_status] }}">{{ row.comparison_status }}</span></td>
+          <td><strong>{{ row.source_code }}</strong> <span class="small text-secondary">{{ row.source_vocabulary_id }}</span>
+            <div class="small">{{ (row.source_code_description or '')|truncate(70) }}</div></td>
+          <td class="small">{% if row.relationship_id != 'Maps to' %}<span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}
+            <strong>{{ row.target_concept_id }}</strong> {{ target_label(row.target_concept_name) }} {{ status_badge(row.mapping_status) }}</td>
+          <td class="small">{% if row.athena_concept_id %}{{ row.athena_vocabulary_id }} <code>{{ row.athena_concept_code }}</code>
+            <div class="text-secondary">{{ (row.athena_concept_name or '')|truncate(50) }}</div>{% else %}—{% endif %}</td>
+          <td class="small">
+            {% for t in row.athena_targets or [] %}
+              <div class="text-nowrap {% if t.target_concept_id == row.target_concept_id %}fw-semibold text-success{% endif %}">
+                {% if t.relationship_id != 'Maps to' %}<span class="badge text-bg-light border">{{ t.relationship_id }}</span>{% endif %}
+                {{ t.target_concept_id }} {{ (t.concept_name or '')|truncate(45) }} <span class="text-secondary">({{ t.vocabulary_id }})</span></div>
+            {% else %}—{% endfor %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-secondary py-4">Aucun mapping comparé.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if r.pages > 1 %}
+    <nav class="mt-2"><ul class="pagination pagination-sm">
+      {% for p in range(1, r.pages + 1) %}{% if p <= 2 or p > r.pages - 2 or (p - flt.page)|abs <= 2 %}
+        <li class="page-item {% if p == flt.page %}active{% endif %}"><a class="page-link" href="{{ flt.url(page=p) }}">{{ p }}</a></li>
+      {% endif %}{% endfor %}
+    </ul></nav>
+    {% endif %}
+  </section>
+</div>
+</form>
+{% endblock %}

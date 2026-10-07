@@ -57,3 +57,22 @@ body { background: #f8f9fa; }
 .ref-preview { font-size: .75rem; max-height: 24rem; overflow: auto; }
 .ref-preview td, .ref-preview th { white-space: nowrap; }
 .ref-steps .badge { font-size: .8rem; }
+
+/* Menu « Avancé » : libellé + description courte */
+.ref-advanced-menu .dropdown-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .4rem; min-width: 18rem; }
+.ref-advanced-menu .dropdown-item small { flex-basis: 100%; padding-left: 1.4rem; color: var(--bs-secondary-color); }
+.ref-advanced-menu .dropdown-item.active small, .ref-advanced-menu .dropdown-item:active small { color: inherit; }
+
+/* Accueil : accès rapide */
+.ref-quick-card { transition: transform .1s, box-shadow .1s; }
+.ref-quick-card:hover { transform: translateY(-2px); box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .08); }
+.ref-quick-card .bi { font-size: 1.6rem; color: var(--ref-navbar-bg); }
+
+/* Export : choix du format */
+.ref-format-option { cursor: pointer; }
+.ref-format-option:has(input:checked) { border-color: var(--bs-primary); box-shadow: 0 0 0 .15rem rgba(13, 110, 253, .2); }
+.ref-format-option .bi { font-size: 1.4rem; }
+
+/* Page API */
+.ref-api-logo { width: 3rem; height: 3rem; border-radius: .6rem; background: var(--ref-navbar-bg); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }

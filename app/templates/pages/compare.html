@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "partials/_get_facets.html" import facet_panel, targets_list %}
+{% set nav = 'compare' %}
+{% block title %}Comparer {{ flt.from_label }} → {{ flt.to_label }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h1 class="h4 mb-0"><i class="bi bi-arrow-left-right"></i> Comparer deux versions</h1>
+  {% if result %}
+  <a class="small" href="/releases/diff?from={{ flt.from_label|urlencode }}&to={{ flt.to_label|urlencode }}">
+    Vue détaillée ligne à ligne <i class="bi bi-box-arrow-up-right"></i></a>
+  {% endif %}
+</div>
+
+<form method="get" action="/compare">
+<div class="ref-searchbar mb-3 row g-2 align-items-end mx-0">
+  <div class="col-auto"><label class="form-label small mb-0" for="ref-from">Version de référence</label>
+    <select id="ref-from" name="from" class="form-select form-select-sm">
+      {% for r in releases %}<option {% if r.label == flt.from_label %}selected{% endif %}>{{ r.label }}</option>{% endfor %}
+    </select></div>
+  <div class="col-auto pb-1"><i class="bi bi-arrow-right"></i></div>
+  <div class="col-auto"><label class="form-label small mb-0" for="ref-to">Version comparée</label>
+    <select id="ref-to" name="to" class="form-select form-select-sm">
+      {% for r in releases %}<option {% if r.label == flt.to_label %}selected{% endif %}>{{ r.label }}</option>{% endfor %}
+    </select></div>
+  <div class="col"><label class="form-label small mb-0" for="ref-cq">Code ou description</label>
+    <input id="ref-cq" type="search" name="query" value="{{ flt.query }}" class="form-control form-control-sm"></div>
+  <div class="col-auto"><button class="btn btn-primary btn-sm">Comparer</button></div>
+</div>
+
+{% if compare_error %}<div class="alert alert-danger py-2">{{ compare_error }}</div>{% endif %}
+{% if not result and not compare_error %}
+  <div class="alert alert-info">Il faut au moins deux releases pour comparer.</div>
+{% endif %}
+
+{% if result %}
+{% set r = result %}
+{# --- Tableau de bord --- #}
+<div class="row g-2 mb-3 text-center">
+  {% for label in [flt.from_label, flt.to_label] %}
+    {% set size = r.sizes.get(label) %}
+    <div class="col-6 col-lg-2"><div class="card h-100"><div class="card-body py-2">
+      <div class="small text-secondary">{{ label }}</div>
+      <div class="ref-figure">{{ (size.n_mappings if size else 0)|fmt_int }}</div>
+      <div class="small text-secondary">mappings · {{ (size.n_codes if size else 0)|fmt_int }} codes</div>
+    </div></div></div>
+  {% endfor %}
+  {% set colors = {'NEW_CODE': 'text-success', 'REMOVED_CODE': 'text-danger', 'TARGET_CHANGED': 'text-primary', 'MODIFIED': 'text-warning'} %}
+  {% for kind, label in r.kinds.items() %}
+    <div class="col-6 col-lg-2"><a class="text-decoration-none" href="{{ flt.url(change_kind=[kind], page=1) }}"><div class="card h-100"><div class="card-body py-2">
+      <div class="ref-figure {{ colors[kind] }}">{{ r.kind_totals[kind]|fmt_int }}</div>
+      <div class="small text-body">{{ label }}</div>
+    </div></div></a></div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-6">
+    <div class="card h-100"><div class="card-header py-1">Codes modifiés par vocabulaire source</div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Vocabulaire</th>{% for kind, label in r.kinds.items() %}<th class="text-end">{{ label }}</th>{% endfor %}<th class="text-end">Total</th></tr></thead>
+      <tbody>
+      {% for line in r.matrix %}
+        <tr><td><a href="{{ flt.url(source_vocabulary=[line.source_vocabulary_id], page=1) }}">{{ line.source_vocabulary_id }}</a></td>
+          {% for kind in r.kinds %}<td class="text-end">{{ line.get(kind, 0)|fmt_int }}</td>{% endfor %}
+          <td class="text-end fw-semibold">{{ line.total|fmt_int }}</td></tr>
+      {% else %}<tr><td colspan="6" class="text-center text-secondary">Aucune différence entre les deux versions.</td></tr>{% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+  <div class="col-md-6 col-xl-3">
+    <div class="card h-100"><div class="card-header py-1">Champs modifiés (codes)</div>
+    <table class="table table-sm mb-0">
+      {% for name, count in r.field_totals[:12] %}
+        <tr><td><a href="{{ flt.url(field=[name], page=1) }}"><code>{{ name }}</code></a></td><td class="text-end">{{ count|fmt_int }}</td></tr>
+      {% else %}<tr><td class="text-secondary">—</td></tr>{% endfor %}
+    </table></div>
+  </div>
+  <div class="col-md-6 col-xl-3">
+    <div class="card h-100"><div class="card-header py-1">Transitions de statut (mappings)</div>
+    <table class="table table-sm mb-0">
+      {% for t in r.transitions %}
+        <tr><td><span class="ref-status ref-status-{{ t.old_status }}">{{ t.old_status }}</span>
+          <i class="bi bi-arrow-right"></i> <span class="ref-status ref-status-{{ t.new_status }}">{{ t.new_status }}</span></td>
+          <td class="text-end">{{ t.n|fmt_int }}</td></tr>
+      {% else %}<tr><td class="text-secondary">Aucun changement de statut.</td></tr>{% endfor %}
+    </table></div>
+  </div>
+</div>
+
+{# --- Liste par code --- #}
+<div class="row g-3">
+  <aside class="col-lg-3">{{ facet_panel(r.facets) }}</aside>
+  <section class="col-lg-9">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div><strong>{{ r.total|fmt_int }}</strong> code{{ 's' if r.total > 1 }} modifié{{ 's' if r.total > 1 }}
+        {% if flt.change_kind or flt.source_vocabulary or flt.field or flt.query %}
+          — <a href="{{ flt.url(change_kind=[], source_vocabulary=[], field=[], query='', page=1) }}">tout effacer</a>{% endif %}</div>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ flt.url('/compare/export.csv', page=None) }}"><i class="bi bi-download"></i> Exporter CSV</a>
+    </div>
+    <div class="table-responsive bg-white border rounded">
+    <table class="table table-sm table-hover mb-0 ref-results-table align-middle">
+      <thead class="table-light"><tr><th>Changement</th><th>Code source</th><th>{{ flt.from_label }}</th><th>{{ flt.to_label }}</th><th>Champs modifiés</th></tr></thead>
+      <tbody>
+      {% set badge = {'NEW_CODE': 'text-bg-success', 'REMOVED_CODE': 'text-bg-danger', 'TARGET_CHANGED': 'text-bg-primary', 'MODIFIED': 'text-bg-warning'} %}
+      {% for row in r.rows %}
+        <tr data-href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.from_label if row.change_kind == 'REMOVED_CODE' else flt.to_label }}">
+          <td><span class="badge {{ badge[row.change_kind] }}">{{ r.kinds[row.change_kind] }}</span></td>
+          <td><strong>{{ row.source_code }}</strong> <span class="text-secondary small">{{ row.source_vocabulary_id }}</span>
+            <div class="small">{{ row.source_code_description or '' }}</div></td>
+          <td class="small">{{ targets_list(row.old_targets) }}</td>
+          <td class="small">{{ targets_list(row.new_targets) }}</td>
+          <td class="small">{% for f in row.changed_fields %}<code>{{ f }}</code>{{ ', ' if not loop.last }}{% endfor %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-secondary py-4">Aucun code ne correspond.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if r.pages > 1 %}
+    <nav class="mt-2"><ul class="pagination pagination-sm">
+      {% for p in range(1, r.pages + 1) %}{% if p <= 2 or p > r.pages - 2 or (p - flt.page)|abs <= 2 %}
+        <li class="page-item {% if p == flt.page %}active{% endif %}"><a class="page-link" href="{{ flt.url(page=p) }}">{{ p }}</a></li>
+      {% endif %}{% endfor %}
+    </ul></nav>
+    {% endif %}
+  </section>
+</div>
+{% endif %}
+</form>
+{% endblock %}

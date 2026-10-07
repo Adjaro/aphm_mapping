@@ -30,6 +30,7 @@ from scripts.migrate import migrate  # noqa: E402
 RESET_SQL = """
 DROP SCHEMA IF EXISTS mapping CASCADE;
 DROP SCHEMA IF EXISTS vocab CASCADE;
+DROP SCHEMA IF EXISTS athena_src CASCADE;
 DROP TABLE IF EXISTS public.schema_migration;
 """
 
@@ -44,7 +45,8 @@ VOCAB_ROWS = [
 
 TRUNCATE_SQL = """
 TRUNCATE mapping.audit_log, mapping.import_error, mapping.source_to_concept_map, mapping.import_batch,
-         mapping.release, mapping.custom_column RESTART IDENTITY CASCADE
+         mapping.release, mapping.custom_column, mapping.athena_connection, mapping.athena_vocabulary_map,
+         mapping.athena_maps_to RESTART IDENTITY CASCADE
 """
 
 

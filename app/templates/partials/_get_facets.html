@@ -1,0 +1,37 @@
+{# Macro : panneau de facettes d'un formulaire GET (soumission à chaque case cochée) ; pas de cible HTMX #}
+{% macro facet_panel(facets) %}
+<div class="ref-facet-panel d-flex flex-column gap-2">
+  {% for facet in facets %}
+  <div class="card">
+    <div class="card-header">{{ facet.label }}</div>
+    <div class="ref-facet-values">
+      {% for item in facet.values %}
+      <div class="form-check">
+        <span>
+          <input class="form-check-input" type="checkbox" name="{{ facet.name }}" value="{{ item.value }}"
+                 id="ref-g-{{ facet.name }}-{{ loop.index }}" {% if item.selected %}checked{% endif %} data-ref-autosubmit>
+          <label class="form-check-label" for="ref-g-{{ facet.name }}-{{ loop.index }}">{{ item.label }}</label>
+        </span>
+        <span class="ref-facet-count">{{ item.count|fmt_int }}</span>
+      </div>
+      {% else %}
+      <div class="small text-secondary">Aucune valeur</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro targets_list(targets) %}
+  {% for t in targets or [] %}
+    <div class="text-nowrap">
+      {% if t.relationship_id != 'Maps to' %}<span class="badge text-bg-light border">{{ t.relationship_id }}</span>{% endif %}
+      <strong>{{ t.target_concept_id }}</strong>
+      {% if t.concept_name %}{{ t.concept_name|truncate(60) }}{% else %}<span class="ref-target-missing">(concept introuvable)</span>{% endif %}
+      {% if t.mapping_status %}<span class="ref-status ref-status-{{ t.mapping_status }}">{{ t.mapping_status }}</span>{% endif %}
+    </div>
+  {% else %}
+    <span class="text-secondary">—</span>
+  {% endfor %}
+{% endmacro %}

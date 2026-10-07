@@ -14,6 +14,29 @@
   </form>
 </div>
 
+{% set rq = '?release=' ~ current_release.label if current_release else '' %}
+<div class="container mb-4" style="max-width: 60rem">
+  <div class="row g-2 row-cols-2 row-cols-md-5">
+    {% for href, icon, title, text in [
+      ('/search-terms/terms' ~ rq, 'bi-search', 'Rechercher', 'Trouver un code et ses cibles'),
+      ('/imports/new', 'bi-upload', 'Importer', 'Charger un CSV ou Excel'),
+      ('/releases', 'bi-tags', 'Releases', 'Staging, promotion, publication'),
+      ('/export' ~ rq, 'bi-download', 'Exporter', 'Properties, CSV CDM, CSV complet'),
+      ('/compare', 'bi-arrow-left-right', 'Comparer', 'Différences entre deux versions'),
+    ] %}
+    <div class="col">
+      <a class="card h-100 text-decoration-none text-body ref-quick-card" href="{{ href }}">
+        <div class="card-body text-center py-3">
+          <i class="bi {{ icon }}"></i>
+          <div class="fw-semibold mt-1">{{ title }}</div>
+          <div class="small text-secondary">{{ text }}</div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
 {% if current_release and figures %}
 <div class="container" style="max-width: 60rem">
   <h2 class="h6 text-secondary text-center mb-3">

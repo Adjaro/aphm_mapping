@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% set nav = 'export' %}
+{% set s = summary %}
+{% block title %}Export {{ flt.release }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="bi bi-download"></i> Exporter la release {{ flt.release }}</h1>
+    <div class="small text-secondary">Release {{ current_release.kind }} · {{ current_release.status }}
+      {% if current_release.cdm_build_ref %}· build <code>{{ current_release.cdm_build_ref }}</code>{% endif %}
+      — changer de release avec le sélecteur en haut à droite.</div>
+  </div>
+</div>
+
+<form id="ref-export-form" method="get" action="/export">
+  <input type="hidden" name="release" value="{{ flt.release }}">
+  <div class="row g-3">
+    <div class="col-xl-8">
+      <h2 class="h6 text-secondary text-uppercase small">1. Format</h2>
+      <div class="row g-2 mb-3">
+        {% for key, (label, description, icon) in formats.items() %}
+        <div class="col-md-4">
+          <label class="card h-100 ref-format-option">
+            <div class="card-body py-2">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <input class="form-check-input mt-0" type="radio" name="format" value="{{ key }}" {% if flt.format == key %}checked{% endif %} data-ref-autosubmit>
+                <i class="bi {{ icon }}"></i> <strong>{{ label }}</strong>
+              </div>
+              <div class="small text-secondary">{{ description }}</div>
+            </div>
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+
+      <h2 class="h6 text-secondary text-uppercase small">2. Contenu</h2>
+      <div class="card mb-3"><div class="card-body py-2">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="fw-semibold small mb-1">Vocabulaires source <span class="text-secondary fw-normal">(aucun coché = tous)</span></div>
+            <div class="ref-facet-values border rounded p-2" style="max-height: 14rem; overflow-y: auto">
+              {% for vocab, n in s.vocabularies %}
+              <div class="form-check d-flex justify-content-between">
+                <span><input class="form-check-input" type="checkbox" name="source_vocabulary" value="{{ vocab }}" id="ref-ev-{{ loop.index }}"
+                       {% if vocab in flt.source_vocabulary %}checked{% endif %} data-ref-autosubmit>
+                  <label class="form-check-label" for="ref-ev-{{ loop.index }}">{{ vocab }}</label></span>
+                <span class="ref-facet-count">{{ n|fmt_int }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="fw-semibold small mb-1">Statuts inclus</div>
+            {% for status in statuses %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="mapping_status" value="{{ status }}" id="ref-es-{{ status }}"
+                     {% if status in flt.mapping_status %}checked{% endif %} data-ref-autosubmit>
+              <label class="form-check-label" for="ref-es-{{ status }}"><span class="ref-status ref-status-{{ status }}">{{ status }}</span></label>
+            </div>
+            {% endfor %}
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" name="include_unmapped" value="1" id="ref-eu" {% if flt.include_unmapped %}checked{% endif %} data-ref-autosubmit>
+              <label class="form-check-label small" for="ref-eu">Inclure les codes non mappés (cible 0)</label>
+            </div>
+            <div class="form-text">Par défaut : tous les statuts sauf IGNORED, sans les cibles 0.</div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="col-xl-4">
+      <h2 class="h6 text-secondary text-uppercase small">3. Exporter</h2>
+      <div class="card border-primary">
+        <div class="card-body">
+          <div class="row text-center g-2 mb-3">
+            <div class="col-4"><div class="ref-figure">{{ s.n_mappings|fmt_int }}</div><div class="small text-secondary">mappings</div></div>
+            <div class="col-4"><div class="ref-figure">{{ s.n_codes|fmt_int }}</div><div class="small text-secondary">codes</div></div>
+            <div class="col-4"><div class="ref-figure">{{ s.n_domains|fmt_int }}</div><div class="small text-secondary">{{ 'fichiers' if flt.format == 'properties' else 'domaines' }}</div></div>
+          </div>
+          {% if s.n_mappings == 0 %}
+            <div class="alert alert-warning py-2 small">Aucun mapping ne correspond aux critères.</div>
+          {% endif %}
+          <a class="btn btn-primary w-100 mb-2 {% if s.n_mappings == 0 %}disabled{% endif %}" href="/export/download?{{ flt.query_string() }}">
+            <i class="bi bi-download"></i> Télécharger {{ 'le ZIP' if flt.format == 'properties' else 'le CSV' }}</a>
+          {% if flt.format == 'properties' %}
+            <button type="button" class="btn btn-outline-primary w-100" {% if s.n_mappings == 0 %}disabled{% endif %}
+                    hx-post="/export/write" hx-include="#ref-export-form" hx-disabled-elt="this"
+                    hx-confirm="Écrire les fichiers .properties de {{ flt.release }} dans {{ s.target_dir }} ? Les fichiers existants sont remplacés et les anciens .properties absents de cet export sont supprimés.">
+              <i class="bi bi-folder-symlink"></i> Écrire dans le dossier du serveur</button>
+            <div class="small text-secondary mt-2">Dossier : <code>{{ s.target_dir }}</code></div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mt-3"><div class="card-header py-1"><i class="bi bi-braces-asterisk"></i> Automatiser (pipeline)</div>
+        <div class="card-body small py-2">
+          <div class="mb-1">API :</div>
+          <code class="d-block text-break">/api/releases/{{ flt.release }}/properties.zip</code>
+          <code class="d-block text-break mb-2">/api/releases/{{ flt.release }}/source_to_concept_map.csv</code>
+          <div class="mb-1">Ligne de commande :</div>
+          <code class="d-block text-break">python scripts/export_release.py --release {{ flt.release }} --format properties</code>
+          <a class="d-inline-block mt-2" href="/api">Documentation de l'API <i class="bi bi-arrow-right"></i></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
