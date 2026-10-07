@@ -12,7 +12,7 @@
       <div class="card-header py-1">Récapitulatif</div>
       <div class="card-body py-2">
         <dl class="row mb-0">
-          <dt class="col-5">Release ciblée</dt><dd class="col-7">{{ s.release.label }} ({{ s.release.status }})</dd>
+          <dt class="col-5">Release ciblée</dt><dd class="col-7">{{ s.release.label }} ({{ s.release.status|release_status }})</dd>
           <dt class="col-5">Mode</dt><dd class="col-7"><code>{{ s.batch.load_mode }}</code> — {{ load_modes[s.batch.load_mode] }}</dd>
           {% if s.batch.sheet_name %}<dt class="col-5">Feuille</dt><dd class="col-7">{{ s.batch.sheet_name }}</dd>{% endif %}
           {% if s.replace_vocabulary %}
@@ -35,7 +35,7 @@
 
 <div class="mt-3 d-flex gap-2">
   <a class="btn btn-outline-secondary" href="/imports/{{ s.batch.import_batch_id }}/columns"><i class="bi bi-arrow-left"></i> Modifier la correspondance</a>
-  {% set confirm %}{% if s.replace_vocabulary %}Remplacer le vocabulaire {{ s.replace_vocabulary }} dans {{ s.release.label }} : {{ s.rows_to_delete }} mappings existants seront supprimés puis rechargés depuis le fichier. Continuer ?{% else %}Charger le fichier dans la release {{ s.release.label }} (mode {{ s.batch.load_mode }}) ?{% endif %}{% endset %}
+  {% set confirm %}{% if s.replace_vocabulary %}Remplacer le vocabulaire {{ s.replace_vocabulary }} dans {{ s.release.label }} : {{ s.rows_to_delete }} mappings existants seront supprimés puis rechargés depuis le fichier. Continuer ?{% else %}Charger le fichier dans la release {{ s.release.label }} (mode {{ s.batch.load_mode|load_mode }}) ?{% endif %}{% endset %}
   <form hx-post="/imports/{{ s.batch.import_batch_id }}/validate" hx-confirm="{{ confirm }}" hx-disabled-elt="find button">
     <button class="btn {{ 'btn-danger' if s.replace_vocabulary else 'btn-primary' }}" type="submit" {% if s.batch.status != 'pending' %}disabled{% endif %}>
       <i class="bi bi-database-up"></i> Valider et charger

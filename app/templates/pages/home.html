@@ -41,7 +41,7 @@
 <div class="container" style="max-width: 60rem">
   <h2 class="h6 text-secondary text-center mb-3">
     Release <strong>{{ current_release.label }}</strong>
-    ({{ current_release.kind }}, {{ current_release.status }}{% if current_release.published_at %}, publiée le {{ current_release.published_at|fmt_dt }}{% endif %})
+    ({{ current_release.kind|release_kind }}, {{ current_release.status|release_status }}{% if current_release.published_at %}, publiée le {{ current_release.published_at|fmt_dt }}{% endif %})
   </h2>
   <div class="row g-3 text-center">
     {% set q = '/search-terms/terms?release=' ~ current_release.label %}

@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
   <div>
     <h1 class="h4 mb-1"><i class="bi bi-download"></i> Exporter la release {{ flt.release }}</h1>
-    <div class="small text-secondary">Release {{ current_release.kind }} · {{ current_release.status }}
+    <div class="small text-secondary">Release {{ current_release.kind|release_kind }} · {{ current_release.status|release_status }}
       {% if current_release.cdm_build_ref %}· build <code>{{ current_release.cdm_build_ref }}</code>{% endif %}
       — changer de release avec le sélecteur en haut à droite.</div>
   </div>

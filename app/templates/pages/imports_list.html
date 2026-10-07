@@ -20,12 +20,12 @@
       <td>{{ b.file_name }}</td>
       <td>{{ b.release_label }}</td>
       <td>{{ b.source_vocabulary_id or '' }}</td>
-      <td>{{ b.load_mode }}</td>
+      <td>{{ b.load_mode|load_mode }}</td>
       <td>{% include "partials/_import_status.html" %}</td>
       <td class="text-end">{{ b.rows_read|fmt_int }}</td>
       <td class="text-end">{{ b.rows_loaded|fmt_int }}</td>
       <td class="text-end">{{ b.rows_rejected|fmt_int }}</td>
-      <td>{{ b.created_by or '' }}</td>
+      <td>{{ b.created_by|user_label }}</td>
       <td>{{ b.created_at|fmt_dt }}</td>
     </tr>
   {% else %}

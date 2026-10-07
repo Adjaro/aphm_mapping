@@ -8,6 +8,22 @@
   <a class="btn btn-sm btn-outline-secondary" href="/releases/diff"><i class="bi bi-file-diff"></i> Comparer deux releases</a>
 </div>
 
+{% if o.open_majors %}{% set step = 4 %}{% set next_text = "Publier " ~ o.open_majors[0].label ~ " avec la référence du build CDM." %}
+{% elif o.staging %}{% set step = 2 %}{% set next_text = "Importer / corriger dans " ~ o.staging.label ~ ", vérifier dans « Comparer », puis promouvoir." %}
+{% elif o.latest_published %}{% set step = 1 %}{% set next_text = "Créer une staging pour préparer la prochaine version." %}
+{% else %}{% set step = 0 %}{% set next_text = "Créer la release initiale, puis importer des mappings." %}{% endif %}
+<div class="card mb-3"><div class="card-body py-2">
+  <div class="ref-cycle d-flex flex-wrap align-items-center gap-2">
+    {% for number, icon, label in [(1, 'bi-patch-check', 'Majeure publiée'), (2, 'bi-pencil-square', 'Staging : imports et corrections'),
+                                   (3, 'bi-arrow-up-circle', 'Promotion en majeure'), (4, 'bi-send-check', 'Publication (build CDM)')] %}
+      <span class="ref-cycle-step {{ 'ref-cycle-current' if number == step }} {{ 'ref-cycle-done' if number < step }}">
+        <i class="bi {{ icon }}"></i> {{ label }}</span>
+      {% if not loop.last %}<i class="bi bi-chevron-right text-secondary"></i>{% endif %}
+    {% endfor %}
+  </div>
+  <div class="small mt-2"><strong>Prochaine étape :</strong> {{ next_text }}</div>
+</div></div>
+
 <div class="row g-3 mb-3">
   {% if not o.has_releases %}
   <div class="col-lg-4">
@@ -81,7 +97,7 @@
     <tr>
       <td class="fw-semibold"><a href="/search-terms/terms?release={{ r.label }}">{{ r.label }}</a></td>
       <td>{{ 'majeure' if r.kind == 'major' else 'staging' }}</td>
-      <td><span class="badge {{ colors[r.status] }}">{{ r.status }}</span></td>
+      <td><span class="badge {{ colors[r.status] }}">{{ r.status|release_status }}</span></td>
       <td>{{ r.parent_label or '' }}</td>
       <td class="text-end">{{ r.n_mappings|fmt_int }}</td>
       <td class="small">{{ r.vocabulary_version or '' }}</td>

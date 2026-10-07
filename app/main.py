@@ -7,7 +7,19 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import APP_NAME, BASE_DIR, get_settings
-from app.routes import api, athena, compare, export, imports, mapping, quality, releases, search, settings
+from app.routes import (
+    api,
+    athena,
+    compare,
+    export,
+    help,
+    imports,
+    mapping,
+    quality,
+    releases,
+    search,
+    settings,
+)
 
 
 def create_app() -> FastAPI:
@@ -28,6 +40,7 @@ def create_app() -> FastAPI:
         quality.router,
         settings.router,
         api.router,
+        help.router,
     ):
         application.include_router(router)
     application.add_api_route(

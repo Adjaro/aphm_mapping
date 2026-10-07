@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% set nav = 'help' %}
+{% block title %}Aide — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 62rem">
+  <h1 class="h4"><i class="bi bi-question-circle"></i> Aide</h1>
+  <p class="text-secondary">Le référentiel conserve les mappings des codes locaux AP-HM vers les concepts standards OMOP
+    (table <code>source_to_concept_map</code>), version par version. Chaque version publiée correspond à un CDM généré.</p>
+
+  <div class="alert {{ 'alert-success' if editable else 'alert-secondary' }} py-2">
+    {% if editable %}
+      <i class="bi bi-pencil-square"></i> Version modifiable en ce moment : <strong>{{ editable.label }}</strong>
+      ({{ editable.kind|release_kind }}). Les imports et corrections s'y appliquent.
+    {% else %}
+      <i class="bi bi-lock"></i> Aucune version modifiable : <a href="/releases">créer une staging</a> pour pouvoir importer ou corriger.
+    {% endif %}
+  </div>
+
+  <h2 class="h5 mt-4">Le cycle d'une version</h2>
+  <ol class="ref-help-steps">
+    <li><strong>Créer la staging</strong> (<a href="/releases">Releases</a>) : copie complète de la dernière version publiée.</li>
+    <li><strong>Importer</strong> des fichiers CSV / Excel (<a href="/imports/new">Import</a>) ou <strong>corriger</strong> un code depuis sa fiche
+      (<a href="/search-terms/terms">Recherche</a> › clic sur un code › Modifier).</li>
+    <li><strong>Vérifier</strong> les changements (<a href="/compare">Comparer</a>) et la qualité des cibles (Avancé › Qualité).</li>
+    <li><strong>Promouvoir</strong> la staging en nouvelle version majeure, puis la <strong>publier</strong> avec la référence du build CDM.</li>
+    <li><strong>Exporter</strong> la version publiée (<a href="/export">Export</a>) : fichiers properties, CSV CDM ou CSV complet.</li>
+  </ol>
+
+  <h2 class="h5 mt-4">Les onglets</h2>
+  <div class="row g-2">
+    {% for icon, title, href, text in [
+      ('bi-search', 'Recherche', '/search-terms/terms', "Recherche par code, description ou libellé du concept cible. Les filtres à gauche se combinent ; l'adresse de la page peut être partagée telle quelle."),
+      ('bi-upload', 'Import', '/imports', "Assistant en 3 étapes : fichier, correspondance des colonnes (ou valeur par défaut pour toute une colonne), validation. Les lignes en erreur sont listées et téléchargeables."),
+      ('bi-tags', 'Releases', '/releases', "Liste des versions et actions du cycle : créer la staging, promouvoir, publier."),
+      ('bi-download', 'Export', '/export', "Properties (un fichier par domaine, code=cible), CSV CDM ou CSV complet, filtrables par vocabulaire et statut."),
+      ('bi-arrow-left-right', 'Comparer', '/compare', "Ce qui a changé entre deux versions : nouveaux codes, codes supprimés, cibles changées, statuts."),
+      ('bi-gear', 'Avancé', '/api', "Comparaison avec les « Maps to » d'Athena, qualité des cibles, colonnes personnalisées, API pour le pipeline."),
+    ] %}
+    <div class="col-md-6">
+      <a class="card h-100 text-decoration-none text-body ref-quick-card" href="{{ href }}">
+        <div class="card-body py-2 d-flex gap-3">
+          <i class="bi {{ icon }}"></i>
+          <div><div class="fw-semibold">{{ title }}</div><div class="small text-secondary">{{ text }}</div></div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h2 class="h5 mt-4">Statuts d'un mapping</h2>
+  <table class="table table-sm bg-white border">
+    <tr><td><span class="ref-status ref-status-APPROVED">APPROVED</span></td><td>Validé par un relecteur.</td></tr>
+    <tr><td><span class="ref-status ref-status-UNCHECKED">UNCHECKED</span></td><td>Proposé, pas encore relu.</td></tr>
+    <tr><td><span class="ref-status ref-status-FLAGGED">FLAGGED</span></td><td>Signalé : à revoir.</td></tr>
+    <tr><td><span class="ref-status ref-status-IGNORED">IGNORED</span></td><td>Écarté : exclu des exports CDM et properties.</td></tr>
+  </table>
+
+  <h2 class="h5 mt-4">Bon à savoir</h2>
+  <ul class="small">
+    <li>Saisissez votre nom en haut à droite : il est enregistré dans l'historique de vos imports et corrections.</li>
+    <li>Une version publiée ou archivée n'est plus modifiable ; la fiche d'un code propose alors de le corriger dans la staging.</li>
+    <li>Les actions irréversibles (publier, promouvoir, remplacer un vocabulaire) demandent toujours une confirmation.</li>
+  </ul>
+</div>
+{% endblock %}

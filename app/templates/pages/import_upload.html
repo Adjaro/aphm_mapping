@@ -10,7 +10,7 @@
 {% else %}
 <div class="card" style="max-width: 44rem">
   <div class="card-body">
-    <p class="mb-3">Release ciblée : <strong>{{ target.label }}</strong> ({{ target.kind }}, ouverte).</p>
+    <p class="mb-3">Release ciblée : <strong>{{ target.label }}</strong> ({{ target.kind|release_kind }}, ouverte).</p>
     {% if form_error %}<div class="alert alert-danger py-2">{{ form_error }}</div>{% endif %}
     <form action="/imports/new" method="post" enctype="multipart/form-data">
       <div class="mb-3">

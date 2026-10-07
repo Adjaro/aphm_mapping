@@ -22,14 +22,29 @@
   </div>
 </div>
 
-{% if not r.configured %}
-<div class="alert alert-info">
-  Aucune correspondance de vocabulaire n'est paramétrée. Dans <a href="/settings/athena">Paramètres › Base Athena</a> :
-  enregistrer la connexion, associer chaque vocabulaire source à un vocabulaire Athena (ex. ICD10 → CIM10, UNIT → UCUM),
-  puis lancer la synchronisation.
+{% if not r.configured or not r.connection %}
+<div class="card my-3">
+  <div class="card-body">
+    <h2 class="h5"><i class="bi bi-signpost-split"></i> Mettre en place la comparaison avec Athena</h2>
+    <p class="text-secondary small">Trois étapes, une seule fois, dans <a href="/settings/athena">Avancé › Base Athena</a> :</p>
+    <div class="row g-3">
+      {% for done, icon, title, text in [
+        (r.connection is not none, 'bi-database-gear', '1. Enregistrer la base Athena', "Serveur PostgreSQL contenant concept, concept_relationship et vocabulary (compte en lecture seule)."),
+        (r.configured, 'bi-arrow-left-right', '2. Associer les vocabulaires', 'Ex. ICD10 → CIM10 (en ignorant les points), UNIT → UCUM, CCAM → CCAM.'),
+        (r.connection is not none and r.connection.last_sync_status == 'ok', 'bi-arrow-repeat', '3. Synchroniser', "Copie locale des relations « Maps to » ; à refaire après chaque mise à jour d'Athena."),
+      ] %}
+      <div class="col-md-4">
+        <div class="border rounded p-3 h-100 {{ 'border-success' if done }}">
+          <div class="fw-semibold"><i class="bi {{ 'bi-check-circle-fill text-success' if done else icon }}"></i> {{ title }}</div>
+          <div class="small text-secondary">{{ text }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <a class="btn btn-primary mt-3" href="/settings/athena"><i class="bi bi-gear"></i> Paramétrer la base Athena</a>
+  </div>
 </div>
-{% endif %}
-
+{% else %}
 <form method="get" action="/athena">
 <input type="hidden" name="release" value="{{ flt.release }}">
 {% set colors = {'SAME': 'text-success', 'DIFFERENT': 'text-danger', 'MISSING_LOCAL': 'text-warning', 'ATHENA_NO_MAPPING': 'text-secondary', 'CODE_NOT_IN_ATHENA': 'text-secondary'} %}
@@ -118,4 +133,5 @@
   </section>
 </div>
 </form>
+{% endif %}
 {% endblock %}

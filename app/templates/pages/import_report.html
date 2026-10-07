@@ -15,8 +15,8 @@
   <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure text-success">{{ b.rows_loaded|fmt_int }}</div>chargées</div></div></div>
   <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure text-danger">{{ b.rows_rejected|fmt_int }}</div>rejetées</div></div></div>
   <div class="col-md-6 text-start small">
-    <div>Release : <strong>{{ r.release.label }}</strong> · mode <code>{{ b.load_mode }}</code></div>
-    <div>Auteur : {{ b.created_by or '' }} · {{ b.created_at|fmt_dt }}</div>
+    <div>Release : <strong>{{ r.release.label }}</strong> · mode {{ b.load_mode|load_mode }}</div>
+    <div>Auteur : {{ b.created_by|user_label }} · {{ b.created_at|fmt_dt }}</div>
     <div class="text-truncate" title="{{ b.file_sha256 }}">SHA-256 : <code>{{ b.file_sha256 }}</code></div>
     {% if b.rows_loaded %}
       <a class="btn btn-sm btn-outline-primary mt-1" href="/search-terms/terms?release={{ r.release.label }}&import_batch={{ b.import_batch_id }}">

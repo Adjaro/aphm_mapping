@@ -47,6 +47,13 @@ def lineage(session: Session) -> Sequence[RowMapping]:
         return release_repo.lineage(session)
 
 
+def editable_release(session: Session) -> Release | None:
+    """Release modifiable (la staging ouverte en priorité), ou None."""
+    with session.begin():
+        releases = release_repo.open_releases(session)
+    return releases[0] if releases else None
+
+
 def resolve_release(session: Session, label: str | None) -> Release | None:
     """Release demandée, sinon la dernière publiée, sinon la plus récente."""
     with session.begin():

@@ -76,3 +76,23 @@ body { background: #f8f9fa; }
 /* Page API */
 .ref-api-logo { width: 3rem; height: 3rem; border-radius: .6rem; background: var(--ref-navbar-bg); color: #fff;
   display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+
+/* Fiche : titres de section dans la carte Détails */
+.ref-detail-card .ref-detail-section { margin-top: .4rem; padding-top: .3rem; border-top: 1px solid var(--bs-border-color);
+  color: var(--ref-navbar-bg); font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+.ref-detail-card dl > .ref-detail-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Bandeau : meilleure lisibilité des liens inactifs */
+.ref-navbar .nav-link { color: rgba(255, 255, 255, .82); }
+.ref-navbar .nav-link:hover, .ref-navbar .nav-link:focus { color: #fff; }
+.ref-navbar .nav-link.active { color: #fff; font-weight: 600; box-shadow: inset 0 -2px 0 #5dade2; }
+
+/* Releases : étapes du cycle de vie */
+.ref-cycle-step { padding: .25rem .6rem; border-radius: 1rem; border: 1px solid var(--bs-border-color); font-size: .82rem;
+  color: var(--bs-secondary-color); background: #fff; }
+.ref-cycle-step.ref-cycle-done { color: var(--ref-approved); border-color: var(--ref-approved); }
+.ref-cycle-step.ref-cycle-current { color: #fff; background: var(--ref-navbar-bg); border-color: var(--ref-navbar-bg); font-weight: 600; }
+
+/* Aide */
+.ref-help-steps li { margin-bottom: .35rem; }
+.ref-quick-card .d-flex > .bi { font-size: 1.4rem; }

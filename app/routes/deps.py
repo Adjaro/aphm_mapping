@@ -43,7 +43,7 @@ def render(
     """Page complète : ajoute la liste des releases (sélecteur du bandeau) et les messages."""
     full_context = {
         "releases": release_service.list_releases(session),
-        "current_release": release,
+        "current_release": release or release_service.resolve_release(session, None),
         "user": current_user(request),
         "notice": request.query_params.get("notice"),
         "error": request.query_params.get("error"),

@@ -22,6 +22,11 @@
     if (!input) return;
     var value = encodeURIComponent(input.value.trim());
     document.cookie = "ref_user=" + value + "; path=/; max-age=31536000; SameSite=Lax";
+    var saved = document.getElementById("ref-user-saved");
+    if (saved) {
+      saved.classList.remove("d-none");
+      setTimeout(function () { saved.classList.add("d-none"); }, 2500);
+    }
   });
 
   // Ligne de tableau cliquable (data-href)

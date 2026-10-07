@@ -17,10 +17,18 @@
     <span class="badge text-bg-secondary">{{ detail.source_vocabulary_id }}</span>
     {% if first and first.domain_id %}<span class="badge text-bg-info">{{ first.domain_id }}</span>{% endif %}
     {% for status in rows|map(attribute='mapping_status')|unique %}{{ status_badge(status) }} {% endfor %}
-    <span class="badge text-bg-light border">Release {{ detail.release.label }} ({{ detail.release.status }})</span>
+    <span class="badge text-bg-light border">Release {{ detail.release.label }} ({{ detail.release.status|release_status }})</span>
   </div>
   {% if not detail.release.is_open %}
-    <div class="small text-secondary"><i class="bi bi-lock"></i> Release non modifiable (statut {{ detail.release.status }})</div>
+    <div class="text-end">
+      <div class="small text-secondary mb-1"><i class="bi bi-lock"></i> Release {{ detail.release.label }} {{ detail.release.status|release_status }} : lecture seule</div>
+      {% if edit_release %}
+        <a class="btn btn-sm btn-primary" href="/mappings/{{ detail.source_vocabulary_id|quote_path }}/{{ detail.source_code|quote_path }}?release={{ edit_release.label }}">
+          <i class="bi bi-pencil"></i> Corriger dans la {{ edit_release.kind|release_kind }} {{ edit_release.label }}</a>
+      {% else %}
+        <a class="btn btn-sm btn-outline-secondary" href="/releases"><i class="bi bi-plus-circle"></i> Ouvrir une staging pour corriger</a>
+      {% endif %}
+    </div>
   {% endif %}
 </div>
 
@@ -41,7 +49,7 @@
   <div class="tab-pane fade show active" id="ref-tab-details" role="tabpanel">
     <div class="row g-3">
     {% for row in rows %}
-      <div class="col-xl-6">
+      <div class="{{ 'col-xxl-6 col-xl-8' if rows|length == 1 else 'col-xl-6' }}">
         <div class="card ref-detail-card">
           <div class="card-header d-flex justify-content-between align-items-center py-1">
             <span>{{ row.relationship_id }} → <strong>{{ row.target_concept_id }}</strong> {{ target_label(row.concept_name) }}</span>
@@ -52,24 +60,30 @@
           </div>
           <div class="card-body py-2">
             <dl class="row mb-0 small">
-              {% for key, label in [
-                ('source_code', 'source_code'), ('source_concept_id', 'source_concept_id'),
-                ('source_vocabulary_id', 'source_vocabulary_id'), ('source_code_description', 'source_code_description'),
-                ('target_concept_id', 'target_concept_id'), ('target_vocabulary_id', 'target_vocabulary_id'),
-                ('valid_start_date', 'valid_start_date'), ('valid_end_date', 'valid_end_date'),
-                ('invalid_reason', 'invalid_reason'), ('domain_id', 'Domaine'), ('relationship_id', 'Relation'),
-                ('source_frequency', 'Fréquence source'), ('mapping_status', 'Statut'), ('equivalence', 'Équivalence'),
-                ('mapping_comment', 'Commentaire'), ('mapped_by', 'Mappé par'), ('reviewed_by', 'Revu par'),
-                ('reviewed_at', 'Revu le'), ('import_batch_id', 'Import'), ('quality_flag', 'Qualité'),
-                ('created_at', 'Créé le'), ('updated_at', 'Modifié le')] %}
-                <dt class="col-5">{{ label }}</dt>
+              {% for section, fields in [
+                ('Code source', [('source_code', 'Code'), ('source_code_description', 'Description'),
+                                 ('source_vocabulary_id', 'Vocabulaire source'), ('source_concept_id', 'ID concept source'),
+                                 ('source_frequency', 'Fréquence')]),
+                ('Cible', [('target_concept_id', 'ID concept cible'), ('target_vocabulary_id', 'Vocabulaire cible'),
+                           ('relationship_id', 'Relation'), ('domain_id', 'Domaine'), ('quality_flag', 'Qualité')]),
+                ('Validité', [('valid_start_date', 'Début'), ('valid_end_date', 'Fin'), ('invalid_reason', "Motif d'invalidité")]),
+                ('Suivi', [('mapping_status', 'Statut'), ('equivalence', 'Équivalence'), ('mapping_comment', 'Commentaire'),
+                           ('mapped_by', 'Mappé par'), ('reviewed_by', 'Revu par'), ('reviewed_at', 'Revu le'),
+                           ('import_batch_id', 'Import'), ('created_at', 'Créé le'), ('updated_at', 'Modifié le')]),
+              ] %}
+                <dt class="col-12 ref-detail-section">{{ section }}</dt>
+                {% for key, label in fields %}
+                <dt class="col-5" title="{{ key }}">{{ label }}</dt>
                 <dd class="col-7">
                   {% if key == 'import_batch_id' and row[key] %}<a href="/imports/{{ row[key] }}">n° {{ row[key] }}</a>
                   {% elif key == 'mapping_status' %}{{ status_badge(row[key]) }}
                   {% elif key == 'quality_flag' %}{{ quality_badge(row[key]) }}
+                  {% elif key in ('mapped_by', 'reviewed_by') %}{{ (row[key]|user_label) or '—' }}
                   {% else %}{{ row[key]|fmt_value }}{% endif %}
                 </dd>
+                {% endfor %}
               {% endfor %}
+              {% if detail.custom_columns %}<dt class="col-12 ref-detail-section">Colonnes personnalisées</dt>{% endif %}
               {% for column in detail.custom_columns %}
                 <dt class="col-5">{{ column.label }}</dt>
                 <dd class="col-7">{{ (row.extra or {}).get(column.column_name)|fmt_value }}</dd>
@@ -139,7 +153,7 @@
     <table class="table table-sm table-bordered ref-history mb-0">
       <thead class="table-light"><tr>
         <th></th>
-        {% for column in detail.history %}<th>{{ column.label }} <span class="small text-secondary">({{ column.status }})</span></th>{% endfor %}
+        {% for column in detail.history %}<th>{{ column.label }} <span class="small text-secondary">({{ column.status|release_status }})</span></th>{% endfor %}
       </tr></thead>
       <tbody>
         <tr><th class="table-light">Présent</th>
@@ -163,7 +177,7 @@
       <div class="border rounded p-2 mb-2">
         <div class="small mb-1">
           <span class="badge {{ 'text-bg-warning' if entry.operation == 'UPDATE' else 'text-bg-danger' }}">{{ entry.operation }}</span>
-          <strong>{{ entry.changed_by }}</strong> — {{ entry.changed_at|fmt_dt }} — release {{ entry.release_label or '?' }}
+          <strong>{{ entry.changed_by|user_label }}</strong> — {{ entry.changed_at|fmt_dt }} — release {{ entry.release_label or '?' }}
           — cible {{ entry.target_concept_id }}
         </div>
         <table class="table table-sm mb-0 ref-audit-changes">

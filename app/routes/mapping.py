@@ -121,5 +121,6 @@ def mapping_detail(
     if detail is None:
         return not_found(request, session, f"Code {source_code} ({source_vocabulary_id}) introuvable.")
     athena_targets = athena_service.code_targets(session, source_vocabulary_id, source_code)
-    context = {"detail": detail, "athena_targets": athena_targets}
+    edit_release = None if current.is_open else release_service.editable_release(session)
+    context = {"detail": detail, "athena_targets": athena_targets, "edit_release": edit_release}
     return render(request, session, "pages/mapping_detail.html", context, current)

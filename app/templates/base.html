@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
   <link rel="stylesheet" href="/static/vendor/bootstrap/css/bootstrap.min.css">
   <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/app.css?v={{ STATIC_VERSION }}">
 </head>
 <body>
 {% set release_param = current_release.label if current_release else '' %}
@@ -66,17 +66,21 @@
         </li>
       </ul>
       <div class="d-flex align-items-center gap-2">
+        <a class="nav-link text-white-50 px-1 {% if nav == 'help' %}text-white{% endif %}" href="/aide" title="Aide : comment utiliser le référentiel">
+          <i class="bi bi-question-circle fs-5"></i><span class="visually-hidden">Aide</span></a>
         <label class="visually-hidden" for="ref-user-input">Auteur</label>
         <div class="input-group input-group-sm ref-user">
           <span class="input-group-text" title="Auteur des modifications (non authentifié)"><i class="bi bi-person"></i></span>
           <input id="ref-user-input" class="form-control" value="{{ '' if user == 'anonyme' else user }}"
-                 placeholder="Votre nom" maxlength="100">
+                 placeholder="Votre nom (auteur)" maxlength="100"
+                 title="Nom enregistré dans l'audit de vos imports et corrections (aucun mot de passe)">
+          <span id="ref-user-saved" class="input-group-text text-success d-none" title="Nom enregistré"><i class="bi bi-check-lg"></i></span>
         </div>
         <label class="visually-hidden" for="ref-release-select">Release</label>
         <select id="ref-release-select" class="form-select form-select-sm ref-release-select">
           {% for r in releases %}
             <option value="{{ r.label }}" {% if current_release and r.release_id == current_release.release_id %}selected{% endif %}>
-              {{ r.label }} — {{ {'open': 'ouverte', 'frozen': 'figée', 'published': 'publiée', 'archived': 'archivée'}[r.status] }}
+              {{ r.label }} — {{ r.status|release_status }}
             </option>
           {% else %}
             <option value="">Aucune release</option>
@@ -105,6 +109,6 @@
 
 <script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/static/vendor/htmx/htmx.min.js"></script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v={{ STATIC_VERSION }}"></script>
 </body>
 </html>

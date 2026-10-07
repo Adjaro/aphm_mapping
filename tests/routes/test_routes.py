@@ -287,3 +287,32 @@ def test_api_page_and_properties_endpoint(client: TestClient, session: Session) 
     assert page.status_code == 200 and "properties.zip" in page.text and "cdn" not in page.text.lower()
     assert client.get("/api/releases/v1.0/properties.zip").headers["content-type"] == "application/zip"
     assert client.get("/api/docs").status_code == 404  # Swagger UI (CDN) désactivé
+
+
+def test_user_friendly_pages(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    help_page = client.get("/aide")
+    assert help_page.status_code == 200 and "Version modifiable en ce moment" in help_page.text
+    releases = client.get("/releases")
+    assert (
+        "Prochaine étape" in releases.text
+        and "publiée" in releases.text
+        and ">published<" not in releases.text
+    )
+    detail = client.get("/mappings/LABO/GLU?release=v1.0")
+    assert "Corriger dans la staging v1.1" in detail.text
+    same = client.get("/compare?from=v1.0&to=v1.1")
+    assert "sont identiques" in same.text
+    athena = client.get("/athena?release=v1.1")
+    assert "Mettre en place la comparaison avec Athena" in athena.text
+
+
+def test_encoded_author_is_displayed_decoded(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    sql(session, "UPDATE mapping.import_batch SET created_by = 'Jean%20Dupont'")
+    content = b"code;concept\nX;1001\n"
+    client.post(
+        "/imports/new", files={"file": ("x.csv", content, "text/csv")}, data={"source_vocabulary_id": "LABO"}
+    )
+    sql(session, "UPDATE mapping.import_batch SET created_by = 'Jean%20Dupont'")
+    assert "Jean Dupont" in client.get("/imports").text
