@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Computed, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,3 +38,8 @@ class SourceToConceptMap(Base):
     extra: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+    # Colonne générée par PostgreSQL (migration 11) : code + description, minuscules sans accents
+    search_text: Mapped[str | None] = mapped_column(
+        Text,
+        Computed("mapping.normalize_text(source_code || ' ' || coalesce(source_code_description, ''))"),
+    )

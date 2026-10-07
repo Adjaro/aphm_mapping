@@ -1,7 +1,9 @@
 """Recherche à facettes : compteurs à la Athena, texte, tri, pagination."""
 
+import pytest
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import Release
 from app.schemas.search import NULL_VALUE, SearchFilter
 from app.services import release_service, search_service
@@ -44,12 +46,17 @@ def test_facet_counts_ignore_their_own_filter(session: Session) -> None:
     assert _facet(result, "domain") == {"Measurement": 2}
 
 
-def test_null_values_and_quality_facet(session: Session) -> None:
+def test_null_values_and_quality_facet(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     release = _release(session)
     result = search_service.search(session, release, SearchFilter(domain=[NULL_VALUE]))
     assert [row["source_code"] for row in result.rows] == ["X"]
-    assert _facet(result, "quality") == {"TARGET_NOT_FOUND": 1}
     assert _facet(result, "domain")[NULL_VALUE] == 1
+    # Rubrique Qualité masquée par défaut (SHOW_QUALITY=false), disponible si on la réactive
+    assert all(f.name != "quality" for f in result.facets)
+    monkeypatch.setattr(get_settings(), "show_quality", True)
+    search_service.clear_search_cache()
+    result = search_service.search(session, release, SearchFilter(domain=[NULL_VALUE]))
+    assert _facet(result, "quality") == {"TARGET_NOT_FOUND": 1}
 
 
 def test_text_search_on_code_description_and_target(session: Session) -> None:
@@ -122,8 +129,43 @@ def test_search_scope(session: Session) -> None:
     # « glucose » n'apparaît que dans le libellé du concept cible de GLU
     assert search_service.search(session, release, SearchFilter(query="glucose", scope="source")).total == 0
     assert search_service.search(session, release, SearchFilter(query="glucose", scope="target")).total == 1
-    # « diabète » n'apparaît que dans la description source de E11 (le concept cible dit « diabetes »)
-    assert search_service.search(session, release, SearchFilter(query="diabète", scope="target")).total == 0
-    assert search_service.search(session, release, SearchFilter(query="diabète", scope="source")).total == 1
+    # « E11 » n'est que le code source (le concept cible s'appelle « Type 2 diabetes mellitus »)
+    assert search_service.search(session, release, SearchFilter(query="E11", scope="target")).total == 0
+    assert search_service.search(session, release, SearchFilter(query="E11", scope="source")).total == 1
     assert "scope=target" in SearchFilter(query="x", scope="target").url()
     assert "scope" not in SearchFilter(query="x").url()
+
+
+def test_free_text_multi_words_accents_and_relevance(session: Session) -> None:
+    release = _release(session)
+    add_mapping(session, "v1.0", "GLY2", 1001, description="Glycémie à jeun sur sérum")
+    add_mapping(session, "v1.0", "SERUM-GLU", 1001, description="Sérum glycémie")
+    # mots dans le désordre, sans accents, répartis entre libellé source et libellé cible
+    words = search_service.search(session, release, SearchFilter(query="serum glycemie"))
+    assert sorted(row["source_code"] for row in words.rows) == ["GLY2", "SERUM-GLU"]
+    across = search_service.search(session, release, SearchFilter(query="jeun glucose"))
+    assert [row["source_code"] for row in across.rows] == ["GLY2"]  # « glucose » = libellé du concept cible
+    # code exact en premier (tri par pertinence)
+    ranked = search_service.search(session, release, SearchFilter(query="GLU"))
+    assert ranked.filter.sort == "relevance"
+    assert ranked.rows[0]["source_code"] == "GLU"
+
+
+def test_suggestions(session: Session) -> None:
+    release = _release(session)
+    found = search_service.suggestions(session, release, "glu", "all")
+    assert [s["source_code"] for s in found.sources] == ["GLU"]
+    assert [t["target_concept_id"] for t in found.targets] == [1001]
+    assert found.targets[0]["n_sources"] == 1
+    assert search_service.suggestions(session, release, "g", "all").sources == []
+    only_targets = search_service.suggestions(session, release, "1002", "target")
+    assert only_targets.sources == [] and [t["target_concept_id"] for t in only_targets.targets] == [1002]
+
+
+def test_search_cache_invalidated_by_changes(session: Session) -> None:
+    release = _release(session)
+    before = search_service.search(session, release, SearchFilter())
+    assert search_service.search(session, release, SearchFilter()) is before  # résultat réutilisé
+    add_mapping(session, "v1.0", "NOUVEAU", 1001)
+    after = search_service.search(session, release, SearchFilter())
+    assert after.total == before.total + 1

@@ -64,6 +64,15 @@ Puis ouvrir http://localhost:8000.
 cibles décrits dans les fichiers (≈ 23 000 concepts). C'est un extrait : charger le vocabulaire Athena
 complet avec `load_vocab.py` avant d'utiliser le sélecteur de concepts en production.
 
+## Recherche
+
+- Texte libre, plusieurs mots dans n'importe quel ordre (ex. `chlorure sodium 0,9`), majuscules et accents
+  ignorés, sur le code, le libellé source et le libellé ou l'ID du concept cible ; portée réglable
+  (Tout / Codes source / Concepts cibles). Suggestions dès la frappe, `/` pour aller à la recherche.
+- Cliquer une cible (ID, libellé, badge « N codes ») liste les codes source mappés vers ce concept.
+- Filtres « Cibles du code source » (une / plusieurs) et « Codes source de la cible » (propre / partagée).
+- La rubrique Qualité est masquée par défaut : `SHOW_QUALITY=true` dans `.env` pour la réafficher.
+
 ## Export
 
 Onglet **Export** (`/export`) : choisir la release, le format et le contenu (vocabulaires, statuts, cibles 0).

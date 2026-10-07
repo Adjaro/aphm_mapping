@@ -4,7 +4,7 @@
   <table class="table table-sm table-hover mb-0 ref-results-table align-middle">
     <thead class="table-light">
       <tr>
-        {% for key, label in sort_labels.items() %}
+        {% for key, label in sort_labels.items() if SHOW_QUALITY or key != 'quality_flag' %}
           {% set next_order = 'desc' if flt.sort == key and flt.order == 'asc' else 'asc' %}
           {% set url = flt.url(sort=key, order=next_order, page=1) %}
           <th scope="col">
@@ -20,11 +20,11 @@
       {% for row in result.rows %}
       <tr data-href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">
         <td class="fw-semibold">
-          <a href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">{{ row.source_code }}</a>
+          <a href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">{{ row.source_code|highlight(flt.query if flt.scope != 'target' else '') }}</a>
           {% if row.n_targets > 1 %}<span class="badge rounded-pill text-bg-warning ref-card-badge" data-bs-toggle="tooltip"
             title="Code mappé vers {{ row.n_targets }} cibles en même temps">×{{ row.n_targets }}</span>{% endif %}
         </td>
-        <td>{{ row.source_code_description or '' }}</td>
+        <td>{{ row.source_code_description|highlight(flt.query if flt.scope != 'target' else '') }}</td>
         <td>{{ row.source_vocabulary_id }}</td>
         <td>{{ row.domain_id or '' }}</td>
         {% set target_url = flt.url(target_concept=row.target_concept_id, page=1) %}
@@ -35,13 +35,20 @@
             class="badge rounded-pill text-bg-light border ref-card-badge text-decoration-none" data-bs-toggle="tooltip"
             title="Cible partagée par {{ row.n_sources }} codes source : cliquer pour les voir">{{ row.n_sources|fmt_int }} codes</a>{% endif %}</td>
         <td><a href="{{ target_url }}" hx-get="{{ target_url }}" hx-target="#ref-search-body" hx-push-url="true"
-               class="ref-target-link" title="Voir tous les codes source mappés vers ce concept">{{ target_label(row.concept_name) }}</a>{% if row.relationship_id != 'Maps to' %} <span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}</td>
+               class="ref-target-link" title="Voir tous les codes source mappés vers ce concept">{% if row.concept_name %}{{ row.concept_name|highlight(flt.query if flt.scope != 'source' else '') }}{% else %}{{ target_label(none) }}{% endif %}</a>{% if row.relationship_id != 'Maps to' %} <span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}</td>
         <td>{{ row.target_vocabulary_id }}</td>
         <td>{{ status_badge(row.mapping_status) }}</td>
-        <td>{{ quality_badge(row.quality_flag) }}</td>
+        {% if SHOW_QUALITY %}<td>{{ quality_badge(row.quality_flag) }}</td>{% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="9" class="text-center text-secondary py-4">Aucun mapping ne correspond aux filtres.</td></tr>
+      <tr><td colspan="9" class="text-center text-secondary py-4">
+        <div class="mb-1"><i class="bi bi-search"></i> Aucun mapping ne correspond.</div>
+        <div class="small">
+          {% if flt.query %}Vérifiez l'orthographe, essayez moins de mots{% if flt.scope != 'all' %} ou
+            <a href="{{ flt.url(scope='all', page=1) }}">cherchez partout</a>{% endif %}.{% endif %}
+          {% if flt.active_filters()|length > (1 if flt.query else 0) %}
+            <a href="/search-terms/terms?release={{ flt.release }}{% if flt.query %}&query={{ flt.query|urlencode }}{% endif %}">Retirer les filtres</a>.{% endif %}
+        </div></td></tr>
       {% endfor %}
     </tbody>
   </table>

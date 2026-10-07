@@ -24,6 +24,9 @@ FACET_LABELS: dict[str, str] = {
     "validity": "Validité",
 }
 
+# Facettes secondaires repliées par défaut (dépliées dès qu'une valeur est cochée)
+COLLAPSED_FACETS = {"target_vocabulary", "equivalence", "relationship", "validity", "quality"}
+
 # Libellés affichés pour certaines valeurs techniques (facettes et pastilles)
 FACET_VALUE_LABELS: dict[str, dict[str, str]] = {
     "source_targets": {"single": "Une seule cible", "multiple": "Plusieurs cibles"},
@@ -123,7 +126,7 @@ class SearchFilter(BaseModel):
     scope: Literal["all", "source", "target"] = "all"
     page: int = Field(default=1, ge=1)
     page_size: int = DEFAULT_PAGE_SIZE
-    sort: str = "source_code"
+    sort: str = ""
     order: Literal["asc", "desc"] = "asc"
 
     def normalized(self) -> "SearchFilter":
@@ -131,8 +134,11 @@ class SearchFilter(BaseModel):
         data = self.model_copy()
         if data.page_size not in PAGE_SIZES:
             data.page_size = DEFAULT_PAGE_SIZE
-        if data.sort not in SORT_LABELS:
-            data.sort = "source_code"
+        if data.sort not in SORT_LABELS and data.sort != "relevance":
+            data.sort = ""
+        if not data.sort:
+            # Tri par défaut : pertinence quand on cherche un texte, sinon par code source
+            data.sort = "relevance" if data.query.strip() else "source_code"
         data.query = data.query.strip()
         return data
 
@@ -199,3 +205,4 @@ class FacetOut:
     name: str
     label: str
     values: list[FacetValueOut] = field(default_factory=list)
+    collapsed: bool = False

@@ -175,7 +175,8 @@ def search_csv(release_id: int, flt: SearchFilter) -> Iterator[str]:
     flt = flt.normalized()
 
     def rows(session: Session) -> Iterator[Sequence[Any]]:
-        for row in stcm_repo.iter_search(session, release_id, flt):
+        stcm_repo.prepare_search(session, release_id, flt)
+        for row in stcm_repo.iter_search(session, flt):
             yield [row[h] for h in SEARCH_HEADERS]
 
     return _with_session(rows, SEARCH_HEADERS)

@@ -51,8 +51,8 @@
             <li><h6 class="dropdown-header">Analyse</h6></li>
             <li><a class="dropdown-item {% if nav == 'athena' %}active{% endif %}" href="/athena{{ rq }}">
               <i class="bi bi-bullseye"></i> Comparaison Athena<small>nos mappings face aux « Maps to » natifs</small></a></li>
-            <li><a class="dropdown-item {% if nav == 'quality' %}active{% endif %}" href="/quality{{ rq }}">
-              <i class="bi bi-clipboard-check"></i> Qualité des cibles<small>concepts introuvables, non standards…</small></a></li>
+            {% if SHOW_QUALITY %}<li><a class="dropdown-item {% if nav == 'quality' %}active{% endif %}" href="/quality{{ rq }}">
+              <i class="bi bi-clipboard-check"></i> Qualité des cibles<small>concepts introuvables, non standards…</small></a></li>{% endif %}
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">Paramètres</h6></li>
             <li><a class="dropdown-item" href="/settings/athena">

@@ -107,3 +107,15 @@ body { background: #f8f9fa; }
 .ref-results-table .ref-target-link { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
 .ref-results-table .ref-target-link:hover { color: var(--bs-primary); }
 .ref-target-card { background: #f3f8ff; }
+
+/* Suggestions instantanées sous la barre de recherche */
+.ref-suggest { position: absolute; left: 0; right: 0; top: 100%; z-index: 1050; }
+.ref-searchbar .ref-suggest { left: .75rem; right: .75rem; top: calc(.75rem + 2.4rem); }
+.ref-suggest-panel { max-height: 70vh; overflow-y: auto; padding: .25rem 0; }
+.ref-suggest-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ref-navbar-bg);
+  padding: .4rem .75rem .2rem; font-weight: 600; }
+.ref-suggest-item { display: flex; gap: .6rem; align-items: baseline; padding: .3rem .75rem; color: inherit; text-decoration: none; }
+.ref-suggest-item:hover, .ref-suggest-item:focus, .ref-suggest-item.active { background: #eef4ff; outline: none; }
+.ref-suggest-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-suggest-footer { border-top: 1px solid var(--bs-border-color); padding: .3rem .75rem 0; margin-top: .25rem; }
+mark { padding: 0 .1em; background: #fff3a3; border-radius: .15rem; }

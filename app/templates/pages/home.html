@@ -4,13 +4,16 @@
 <div class="ref-home-search text-center">
   <h1 class="h3 mb-3">{{ APP_NAME }}</h1>
   <p class="text-secondary">Recherche dans <code>source_to_concept_map</code> : code source, description ou libellé du concept cible.</p>
-  <form action="/search-terms/terms" method="get" class="mt-3">
+  <form action="/search-terms/terms" method="get" class="mt-3 position-relative">
     {% if current_release %}<input type="hidden" name="release" value="{{ current_release.label }}">{% endif %}
     <div class="input-group input-group-lg">
-      <input type="search" name="query" class="form-control" placeholder="Rechercher un code, une description, un concept…" autofocus
-             aria-label="Recherche">
+      <input id="ref-query" type="search" name="query" class="form-control" autofocus aria-label="Recherche" autocomplete="off"
+             placeholder="Code, libellé source, libellé ou ID du concept cible…"
+             hx-get="/search-terms/suggest" hx-trigger="input changed delay:200ms" hx-target="#ref-suggest"
+             hx-include="[name=release]" hx-sync="this:replace">
       <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Rechercher</button>
     </div>
+    <div id="ref-suggest" class="ref-suggest text-start"></div>
   </form>
 </div>
 
@@ -51,10 +54,16 @@
       <div class="ref-figure">{{ figures.n_source_codes|fmt_int }}</div><div class="text-secondary">codes source</div></div></div></div>
     <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
       <div class="ref-figure">{{ figures.n_source_vocabularies|fmt_int }}</div><div class="text-secondary">vocabulaires source</div></div></div></div>
+    {% if SHOW_QUALITY %}
     <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
       <div class="ref-figure">
         {% if figures.n_mappings %}{{ (100 * figures.n_quality_ok / figures.n_mappings)|round(1) }} %{% else %}—{% endif %}
       </div><div class="text-secondary">cibles qualité OK</div></div></div></div>
+    {% else %}
+    <div class="col-6 col-md-3"><a class="text-decoration-none text-body" href="/search-terms/terms?release={{ current_release.label }}&source_targets=multiple">
+      <div class="card"><div class="card-body py-2">
+      <div class="ref-figure">{{ figures.n_multi_target_codes|fmt_int }}</div><div class="text-secondary">codes avec plusieurs cibles</div></div></div></a></div>
+    {% endif %}
     <div class="col-4"><a class="text-decoration-none" href="{{ q }}&mapping_status=APPROVED"><div class="card"><div class="card-body py-2">
       <div class="ref-figure text-success">{{ figures.n_approved|fmt_int }}</div><span class="ref-status ref-status-APPROVED">APPROVED</span></div></div></a></div>
     <div class="col-4"><a class="text-decoration-none" href="{{ q }}&mapping_status=UNCHECKED"><div class="card"><div class="card-body py-2">

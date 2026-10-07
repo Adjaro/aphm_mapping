@@ -68,7 +68,7 @@
                                  ('source_vocabulary_id', 'Vocabulaire source'), ('source_concept_id', 'ID concept source'),
                                  ('source_frequency', 'Fréquence')]),
                 ('Cible', [('target_concept_id', 'ID concept cible'), ('target_vocabulary_id', 'Vocabulaire cible'),
-                           ('relationship_id', 'Relation'), ('domain_id', 'Domaine'), ('quality_flag', 'Qualité')]),
+                           ('relationship_id', 'Relation'), ('domain_id', 'Domaine')] + ([('quality_flag', 'Qualité')] if SHOW_QUALITY else [])),
                 ('Validité', [('valid_start_date', 'Début'), ('valid_end_date', 'Fin'), ('invalid_reason', "Motif d'invalidité")]),
                 ('Suivi', [('mapping_status', 'Statut'), ('equivalence', 'Équivalence'), ('mapping_comment', 'Commentaire'),
                            ('mapped_by', 'Mappé par'), ('reviewed_by', 'Revu par'), ('reviewed_at', 'Revu le'),
@@ -104,7 +104,7 @@
     <table class="table table-sm table-hover mb-0">
       <thead class="table-light"><tr>
         <th>Relation</th><th>ID cible</th><th>Libellé</th><th>Domaine</th><th>Vocabulaire</th><th>Classe</th>
-        <th>Standard</th><th>Validité</th><th>Qualité</th><th></th>
+        <th>Standard</th><th>Validité</th>{% if SHOW_QUALITY %}<th>Qualité</th>{% endif %}<th></th>
       </tr></thead>
       <tbody>
       {% for row in rows %}
@@ -118,7 +118,7 @@
           <td>{{ row.concept_class_id or '' }}</td>
           <td>{{ {'S': 'Standard', 'C': 'Classification'}.get(row.standard_concept, 'Non standard') if row.concept_name else '' }}</td>
           <td>{% if row.concept_name %}{{ 'Valide' if not row.concept_invalid_reason else 'Invalide (' ~ row.concept_invalid_reason ~ ')' }}{% endif %}</td>
-          <td>{{ quality_badge(row.quality_flag) }}</td>
+          {% if SHOW_QUALITY %}<td>{{ quality_badge(row.quality_flag) }}</td>{% endif %}
           <td>{% if detail.release.is_open %}
             <button class="btn btn-sm btn-link p-0" hx-get="/mappings/{{ row.stcm_id }}/edit" hx-target="#ref-edit-panel" title="Modifier"><i class="bi bi-pencil"></i></button>
           {% endif %}</td>

@@ -15,6 +15,35 @@
     document.querySelectorAll(".tooltip").forEach(function (el) { el.remove(); });
   });
 
+  // Raccourci « / » : placer le curseur dans la recherche
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "/" || event.target.closest("input, textarea, select, [contenteditable]")) return;
+    var input = document.getElementById("ref-query");
+    if (input) { event.preventDefault(); input.focus(); input.select(); }
+  });
+
+  // Suggestions : fermeture (Échap, clic ailleurs, envoi) et navigation au clavier (flèches)
+  function closeSuggestions() {
+    var box = document.getElementById("ref-suggest");
+    if (box) box.innerHTML = "";
+  }
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest("#ref-suggest, #ref-query")) closeSuggestions();
+  });
+  document.addEventListener("submit", closeSuggestions);
+  document.addEventListener("keydown", function (event) {
+    var box = document.getElementById("ref-suggest");
+    if (!box || !event.target.closest("#ref-query, #ref-suggest")) return;
+    if (event.key === "Escape") { closeSuggestions(); return; }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    var items = Array.prototype.slice.call(box.querySelectorAll(".ref-suggest-item"));
+    if (!items.length) return;
+    event.preventDefault();
+    var index = items.indexOf(document.activeElement);
+    index = event.key === "ArrowDown" ? Math.min(index + 1, items.length - 1) : index - 1;
+    if (index < 0) { document.getElementById("ref-query").focus(); } else { items[index].focus(); }
+  });
+
   // Sélecteur de release du bandeau : recharge la page courante avec ?release=
   document.addEventListener("change", function (event) {
     var select = event.target.closest("#ref-release-select");

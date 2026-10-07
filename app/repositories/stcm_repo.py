@@ -20,6 +20,7 @@ from sqlalchemy import (
     distinct,
     false,
     func,
+    insert,
     literal,
     or_,
     select,
@@ -48,8 +49,75 @@ v_mapping_quality = Table(
     schema="mapping",
 )
 
+# Libellés des concepts (lecture seule) pour la recherche texte sur la cible
+concept_t = Table(
+    "concept",
+    _metadata,
+    Column("concept_id", Integer),
+    Column("concept_name", String),
+    schema="vocab",
+)
+
 stcm = SourceToConceptMap.__table__
 q = v_mapping_quality
+
+# Résultat de la recherche courante, calculé une seule fois par transaction (voir prepare_search)
+tmp_search = Table(
+    "tmp_search",
+    _metadata,
+    Column("stcm_id", BigInteger),
+    Column("source_code", String),
+    Column("source_code_description", String),
+    Column("source_vocabulary_id", String),
+    Column("domain_id", String),
+    Column("target_concept_id", Integer),
+    Column("target_vocabulary_id", String),
+    Column("mapping_status", Text),
+    Column("equivalence", Text),
+    Column("relationship_id", String),
+    Column("import_batch_id", Integer),
+    Column("quality_flag", Text),
+    Column("concept_name", String),
+    Column("validity", Text),
+    Column("n_targets", BigInteger),
+    Column("n_sources", BigInteger),
+    Column("source_targets", Text),
+    Column("target_sources", Text),
+    Column("relevance", Integer),
+)
+
+CREATE_TMP_SEARCH_SQL = text(
+    """
+    CREATE TEMP TABLE tmp_search (
+        stcm_id                  bigint,
+        source_code              varchar,
+        source_code_description  varchar,
+        source_vocabulary_id     varchar,
+        domain_id                varchar,
+        target_concept_id        int,
+        target_vocabulary_id     varchar,
+        mapping_status           text,
+        equivalence              text,
+        relationship_id          varchar,
+        import_batch_id          int,
+        quality_flag             text,
+        concept_name             varchar,
+        validity                 text,
+        n_targets                bigint,
+        n_sources                bigint,
+        source_targets           text,
+        target_sources           text,
+        relevance                int
+    ) ON COMMIT DROP
+    """
+)
+
+# Plans robustes même quand PostgreSQL sous-estime le nombre de lignes trouvées (texte libre) :
+# jointures par hachage et mémoire de tri suffisante, pour la seule transaction de recherche.
+SEARCH_SESSION_SETTINGS = (
+    text("SET LOCAL enable_nestloop = off"),
+    text("SET LOCAL work_mem = '64MB'"),
+)
 
 VALIDITY_EXPR = case((stcm.c.invalid_reason.is_(None), "valide"), else_="invalide")
 
@@ -78,6 +146,7 @@ SORT_COLUMNS = (
     "target_vocabulary_id",
     "mapping_status",
     "quality_flag",
+    "relevance",
 )
 
 RESULT_COLUMNS = (
@@ -96,40 +165,16 @@ RESULT_COLUMNS = (
     "validity",
     "n_targets",
     "n_sources",
+    "relevance",
 )
-
-
-def _cardinalities(release_id: int) -> tuple[Any, Any]:
-    """Nombre de cibles par code source et de codes source par cible, calculés sur toute la release."""
-    by_source = (
-        select(
-            stcm.c.source_vocabulary_id,
-            stcm.c.source_code,
-            func.count().label("n_targets"),
-        )
-        .where(stcm.c.release_id == release_id)
-        .group_by(stcm.c.source_vocabulary_id, stcm.c.source_code)
-        .subquery("by_source")
-    )
-    by_target = (
-        select(
-            stcm.c.target_concept_id,
-            func.count(distinct(tuple_(stcm.c.source_vocabulary_id, stcm.c.source_code))).label("n_sources"),
-        )
-        .where(stcm.c.release_id == release_id)
-        .group_by(stcm.c.target_concept_id)
-        .subquery("by_target")
-    )
-    return by_source, by_target
 
 
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
-    """Sélection de base : release + texte + import ; les facettes sont appliquées ensuite."""
-    by_source, by_target = _cardinalities(release_id)
+def _hits_select(release_id: int, flt: SearchFilter) -> Select[Any]:
+    """Lignes de la release correspondant au texte, à l'import et au concept cible (sans compteurs)."""
     stmt = (
         select(
             stcm.c.stcm_id,
@@ -146,26 +191,13 @@ def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
             q.c.quality_flag,
             q.c.concept_name,
             VALIDITY_EXPR.label("validity"),
-            by_source.c.n_targets,
-            by_target.c.n_sources,
-            case((by_source.c.n_targets > 1, "multiple"), else_="single").label("source_targets"),
-            case((by_target.c.n_sources > 1, "multiple"), else_="single").label("target_sources"),
+            _relevance(flt.query).label("relevance"),
         )
-        .select_from(
-            stcm.join(q, q.c.stcm_id == stcm.c.stcm_id)
-            .join(
-                by_source,
-                and_(
-                    by_source.c.source_vocabulary_id == stcm.c.source_vocabulary_id,
-                    by_source.c.source_code == stcm.c.source_code,
-                ),
-            )
-            .join(by_target, by_target.c.target_concept_id == stcm.c.target_concept_id)
-        )
+        .select_from(stcm.join(q, q.c.stcm_id == stcm.c.stcm_id))
         .where(stcm.c.release_id == release_id, q.c.release_id == release_id)
     )
     if flt.query:
-        stmt = stmt.where(or_(*_text_conditions(flt.query, flt.scope)))
+        stmt = stmt.where(*_text_conditions(release_id, flt.query, flt.scope))
     if flt.import_batch is not None:
         stmt = stmt.where(stcm.c.import_batch_id == flt.import_batch)
     if flt.target_concept is not None:
@@ -173,18 +205,116 @@ def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
     return stmt
 
 
-def _text_conditions(query: str, scope: str) -> list[ColumnElement[bool]]:
-    """Recherche texte : codes source (code, description), concepts cibles (libellé, ID) ou les deux."""
-    pattern = f"%{_escape_like(query)}%"
-    conditions: list[ColumnElement[bool]] = []
+def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
+    """Lignes trouvées + nombre de cibles par code source et de codes source par cible.
+
+    Les compteurs portent sur toute la release mais ne sont calculés que pour les codes et les
+    cibles présents dans les lignes trouvées (rapide pour une recherche précise).
+    """
+    hits = _hits_select(release_id, flt).cte("hits")
+    # Sans filtre restrictif, toute la release est concernée : agrégation directe, plus rapide
+    restricted = bool(flt.query) or flt.import_batch is not None or flt.target_concept is not None
+    source_restriction = (
+        [
+            tuple_(stcm.c.source_vocabulary_id, stcm.c.source_code).in_(
+                select(hits.c.source_vocabulary_id, hits.c.source_code)
+            )
+        ]
+        if restricted
+        else []
+    )
+    target_restriction = (
+        [stcm.c.target_concept_id.in_(select(hits.c.target_concept_id))] if restricted else []
+    )
+    by_source = (
+        select(stcm.c.source_vocabulary_id, stcm.c.source_code, func.count().label("n_targets"))
+        .where(stcm.c.release_id == release_id, *source_restriction)
+        .group_by(stcm.c.source_vocabulary_id, stcm.c.source_code)
+        .subquery("by_source")
+    )
+    by_target = (
+        select(
+            stcm.c.target_concept_id,
+            func.count(distinct(tuple_(stcm.c.source_vocabulary_id, stcm.c.source_code))).label("n_sources"),
+        )
+        .where(stcm.c.release_id == release_id, *target_restriction)
+        .group_by(stcm.c.target_concept_id)
+        .subquery("by_target")
+    )
+    return select(
+        *hits.c,
+        by_source.c.n_targets,
+        by_target.c.n_sources,
+        case((by_source.c.n_targets > 1, "multiple"), else_="single").label("source_targets"),
+        case((by_target.c.n_sources > 1, "multiple"), else_="single").label("target_sources"),
+    ).select_from(
+        hits.join(
+            by_source,
+            and_(
+                by_source.c.source_vocabulary_id == hits.c.source_vocabulary_id,
+                by_source.c.source_code == hits.c.source_code,
+            ),
+        ).join(by_target, by_target.c.target_concept_id == hits.c.target_concept_id)
+    )
+
+
+MAX_WORDS = 8
+
+
+def _normalize(expression: Any) -> Any:
+    """Minuscules sans accents (mapping.normalize_text, migration 10)."""
+    return func.mapping.normalize_text(expression)
+
+
+def search_words(query: str) -> list[str]:
+    return [word for word in query.split() if word][:MAX_WORDS]
+
+
+def _matching_concepts(release_id: int, pattern: Any) -> Select[Any]:
+    """Concepts cibles de la release dont le libellé contient le motif (normalisé)."""
+    release_targets = select(stcm.c.target_concept_id).where(stcm.c.release_id == release_id)
+    return select(concept_t.c.concept_id).where(
+        concept_t.c.concept_id.in_(release_targets),
+        _normalize(concept_t.c.concept_name).like(pattern, escape="\\"),
+    )
+
+
+def _word_condition(release_id: int, word: str, scope: str) -> ColumnElement[bool]:
+    """Un mot doit apparaître dans au moins un champ de la portée choisie."""
+    pattern = _normalize(literal(f"%{_escape_like(word)}%"))
+    fields: list[ColumnElement[bool]] = []
     if scope in ("all", "source"):
-        conditions.append(stcm.c.source_code.ilike(pattern, escape="\\"))
-        conditions.append(stcm.c.source_code_description.ilike(pattern, escape="\\"))
+        fields.append(stcm.c.search_text.like(pattern, escape="\\"))
     if scope in ("all", "target"):
-        conditions.append(q.c.concept_name.ilike(pattern, escape="\\"))
-        if query.isdigit() and len(query) <= 9:
-            conditions.append(stcm.c.target_concept_id == int(query))
-    return conditions
+        fields.append(stcm.c.target_concept_id.in_(_matching_concepts(release_id, pattern)))
+        if word.isdigit():
+            fields.append(cast(stcm.c.target_concept_id, Text).like(f"{word}%"))
+    return or_(*fields)
+
+
+def _text_conditions(release_id: int, query: str, scope: str) -> list[ColumnElement[bool]]:
+    """Texte libre : chaque mot (dans n'importe quel ordre) doit être trouvé ; casse et accents ignorés."""
+    return [_word_condition(release_id, word, scope) for word in search_words(query)]
+
+
+def _relevance(query: str) -> ColumnElement[Any]:
+    """0 = code ou ID cible exact, 1 = code commençant par la saisie, 2 = libellé commençant par la saisie."""
+    if not query:
+        return literal(0)
+    prefix = _normalize(literal(f"{_escape_like(query)}%"))
+    exact_id = stcm.c.target_concept_id == int(query) if query.isdigit() and len(query) <= 9 else false()
+    return case(
+        (or_(func.lower(stcm.c.source_code) == query.lower(), exact_id), 0),
+        (_normalize(stcm.c.source_code).like(prefix, escape="\\"), 1),
+        (
+            or_(
+                _normalize(stcm.c.source_code_description).like(prefix, escape="\\"),
+                _normalize(q.c.concept_name).like(prefix, escape="\\"),
+            ),
+            2,
+        ),
+        else_=3,
+    )
 
 
 def _facet_condition(column: ColumnElement[Any], values: Sequence[str]) -> ColumnElement[bool]:
@@ -206,49 +336,63 @@ def _facet_filters(base: Any, flt: SearchFilter, exclude: str | None = None) -> 
     return filters
 
 
-def count_results(session: Session, release_id: int, flt: SearchFilter) -> int:
-    base = _base_select(release_id, flt).cte("base")
-    stmt = select(func.count()).select_from(base).where(and_(True, *_facet_filters(base, flt)))
+def apply_search_settings(session: Session) -> None:
+    for statement in SEARCH_SESSION_SETTINGS:
+        session.execute(statement)
+
+
+def prepare_search(session: Session, release_id: int, flt: SearchFilter) -> None:
+    """Calcule une fois la recherche (release, texte, import, concept cible) dans tmp_search.
+
+    À appeler dans la transaction ouverte par le service, avant count_results / search / facet_counts.
+    """
+    apply_search_settings(session)
+    session.execute(CREATE_TMP_SEARCH_SQL)
+    base = _base_select(release_id, flt).subquery("base")
+    columns = [column.name for column in tmp_search.columns]
+    session.execute(insert(tmp_search).from_select(columns, select(*(base.c[name] for name in columns))))
+
+
+def count_results(session: Session, flt: SearchFilter) -> int:
+    stmt = select(func.count()).select_from(tmp_search).where(and_(True, *_facet_filters(tmp_search, flt)))
     return int(session.execute(stmt).scalar_one())
 
 
-def _results_select(release_id: int, flt: SearchFilter) -> Select[Any]:
-    base = _base_select(release_id, flt).cte("base")
+def _results_select(flt: SearchFilter) -> Select[Any]:
+    base = tmp_search
     sort_column = base.c[flt.sort if flt.sort in SORT_COLUMNS else "source_code"]
     ordering = sort_column.desc().nulls_last() if flt.order == "desc" else sort_column.asc().nulls_last()
+    tie_breakers = [base.c.source_code, base.c.stcm_id] if flt.sort == "relevance" else [base.c.stcm_id]
     return (
         select(*(base.c[name] for name in RESULT_COLUMNS))
         .where(and_(True, *_facet_filters(base, flt)))
-        .order_by(ordering, base.c.stcm_id)
+        .order_by(ordering, *tie_breakers)
     )
 
 
-def search(session: Session, release_id: int, flt: SearchFilter) -> Sequence[RowMapping]:
-    stmt = _results_select(release_id, flt).limit(flt.page_size).offset((flt.page - 1) * flt.page_size)
+def search(session: Session, flt: SearchFilter) -> Sequence[RowMapping]:
+    stmt = _results_select(flt).limit(flt.page_size).offset((flt.page - 1) * flt.page_size)
     return session.execute(stmt).mappings().all()
 
 
-def iter_search(session: Session, release_id: int, flt: SearchFilter) -> Iterator[RowMapping]:
+def iter_search(session: Session, flt: SearchFilter) -> Iterator[RowMapping]:
     """Tous les résultats filtrés, lus par blocs (export CSV en streaming)."""
-    stmt = _results_select(release_id, flt).execution_options(yield_per=5000)
+    stmt = _results_select(flt).execution_options(yield_per=5000)
     yield from session.execute(stmt).mappings()
 
 
-def facet_counts(
-    session: Session, release_id: int, flt: SearchFilter
-) -> dict[str, list[tuple[str | None, int]]]:
+def facet_counts(session: Session, flt: SearchFilter) -> dict[str, list[tuple[str | None, int]]]:
     """Compteurs par facette ; chaque facette ignore son propre filtre (comportement Athena)."""
-    base = _base_select(release_id, flt).cte("base")
     parts = []
     for facet, column_name in FACET_COLUMNS.items():
-        column = base.c[column_name]
+        column = tmp_search.c[column_name]
         parts.append(
             select(
                 literal(facet).label("facet"),
                 cast(column, Text).label("value"),
                 func.count().label("n"),
             )
-            .where(and_(True, *_facet_filters(base, flt, exclude=facet)))
+            .where(and_(True, *_facet_filters(tmp_search, flt, exclude=facet)))
             .group_by(column)
         )
     rows = session.execute(union_all(*parts)).all()
@@ -258,6 +402,71 @@ def facet_counts(
     for values in result.values():
         values.sort(key=lambda item: (-item[1], item[0] or ""))
     return result
+
+
+def suggest_source_codes(session: Session, release_id: int, query: str, limit: int) -> Sequence[RowMapping]:
+    """Codes source correspondant à la saisie (les plus pertinents d'abord)."""
+    relevance = case(
+        (func.lower(stcm.c.source_code) == query.lower(), 0),
+        (_normalize(stcm.c.source_code).like(_normalize(literal(f"{_escape_like(query)}%")), escape="\\"), 1),
+        else_=2,
+    )
+    stmt = (
+        select(
+            stcm.c.source_vocabulary_id,
+            stcm.c.source_code,
+            func.max(stcm.c.source_code_description).label("description"),
+            func.count().label("n_targets"),
+        )
+        .where(stcm.c.release_id == release_id, *_text_conditions(release_id, query, "source"))
+        .group_by(stcm.c.source_vocabulary_id, stcm.c.source_code)
+        .order_by(func.min(relevance), stcm.c.source_code)
+        .limit(limit)
+    )
+    return session.execute(stmt).mappings().all()
+
+
+def suggest_targets(session: Session, release_id: int, query: str, limit: int) -> Sequence[RowMapping]:
+    """Concepts cibles correspondant à la saisie, avec le nombre de codes source qui y pointent."""
+    exact_id = stcm.c.target_concept_id == int(query) if query.isdigit() and len(query) <= 9 else false()
+    relevance = case(
+        (exact_id, 0),
+        (_normalize(q.c.concept_name).like(_normalize(literal(f"{_escape_like(query)}%")), escape="\\"), 1),
+        else_=2,
+    )
+    n_sources = func.count(distinct(tuple_(stcm.c.source_vocabulary_id, stcm.c.source_code)))
+    stmt = (
+        select(
+            stcm.c.target_concept_id,
+            q.c.concept_name,
+            func.max(stcm.c.target_vocabulary_id).label("target_vocabulary_id"),
+            func.max(q.c.target_domain_id).label("domain_id"),
+            n_sources.label("n_sources"),
+        )
+        .select_from(stcm.join(q, q.c.stcm_id == stcm.c.stcm_id))
+        .where(stcm.c.release_id == release_id, *_text_conditions(release_id, query, "target"))
+        .group_by(stcm.c.target_concept_id, q.c.concept_name)
+        .order_by(func.min(relevance), n_sources.desc(), stcm.c.target_concept_id)
+        .limit(limit)
+    )
+    return session.execute(stmt).mappings().all()
+
+
+DATA_VERSION_SQL = text(
+    """
+    SELECT count(*)        AS n,
+           max(s.stcm_id)  AS max_id,
+           max(s.updated_at) AS max_updated
+      FROM mapping.source_to_concept_map s
+     WHERE s.release_id = :release_id
+    """
+)
+
+
+def data_version(session: Session, release_id: int) -> str:
+    """Empreinte des mappings d'une release ouverte : change à chaque import, correction ou suppression."""
+    row = session.execute(DATA_VERSION_SQL, {"release_id": release_id}).one()
+    return f"{row.n}:{row.max_id}:{row.max_updated}"
 
 
 TARGET_SUMMARY_SQL = text(
@@ -387,7 +596,13 @@ KEY_FIGURES_SQL = text(
            count(*) FILTER (WHERE s.mapping_status = 'APPROVED') AS n_approved,
            count(*) FILTER (WHERE s.mapping_status = 'UNCHECKED') AS n_unchecked,
            count(*) FILTER (WHERE s.mapping_status = 'FLAGGED')  AS n_flagged,
-           count(*) FILTER (WHERE q.quality_flag = 'OK')         AS n_quality_ok
+           count(*) FILTER (WHERE q.quality_flag = 'OK')         AS n_quality_ok,
+           (SELECT count(*)
+              FROM (SELECT 1
+                      FROM mapping.source_to_concept_map m
+                     WHERE m.release_id = :release_id
+                     GROUP BY m.source_vocabulary_id, m.source_code
+                    HAVING count(*) > 1) multi)               AS n_multi_target_codes
       FROM mapping.source_to_concept_map s
       JOIN mapping.v_mapping_quality q ON q.stcm_id = s.stcm_id
      WHERE s.release_id = :release_id

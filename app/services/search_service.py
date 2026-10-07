@@ -1,15 +1,19 @@
 """Recherche à facettes, chiffres clés, fiche d'un code source et synthèse qualité."""
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any
 
 from sqlalchemy import RowMapping
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import CustomColumn, Release
 from app.repositories import audit_repo, custom_column_repo, stcm_repo, vocab_repo
 from app.schemas.search import (
+    COLLAPSED_FACETS,
     FACET_LABELS,
     FACET_VALUE_HELP,
     NULL_VALUE,
@@ -18,6 +22,7 @@ from app.schemas.search import (
     SearchFilter,
     facet_value_label,
 )
+from app.services import release_service
 
 # Champs comparés d'une release à l'autre dans l'onglet Historique
 HISTORY_FIELDS: tuple[tuple[str, str], ...] = (
@@ -31,7 +36,7 @@ HISTORY_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 # Champs ignorés dans la comparaison avant / après de l'audit
-AUDIT_IGNORED_FIELDS = {"updated_at"}
+AUDIT_IGNORED_FIELDS = {"updated_at", "search_text"}
 
 
 @dataclass
@@ -76,15 +81,53 @@ class MappingDetailOut:
     audit: list[AuditEntryOut]
 
 
+# Cache des recherches : une release publiée ou archivée ne change plus (trigger stcm_guard) ;
+# pour une release ouverte, l'empreinte des données invalide le cache après chaque modification.
+SEARCH_CACHE_SIZE = 256
+_search_cache: OrderedDict[tuple[int, str, str], "SearchResultOut"] = OrderedDict()
+_cache_lock = Lock()
+
+
+def _cache_key(session: Session, release: Release, flt: SearchFilter) -> tuple[int, str, str]:
+    if release.status in ("published", "archived"):
+        version = "figée"
+    else:
+        with session.begin():
+            version = stcm_repo.data_version(session, release.release_id)
+    return release.release_id, version, flt.model_dump_json()
+
+
 def search(session: Session, release: Release, flt: SearchFilter) -> SearchResultOut:
     flt = flt.normalized()
+    key = _cache_key(session, release, flt)
+    with _cache_lock:
+        cached = _search_cache.get(key)
+        if cached is not None:
+            _search_cache.move_to_end(key)
+            return cached
+    result = _search(session, release, flt)
+    with _cache_lock:
+        _search_cache[key] = result
+        while len(_search_cache) > SEARCH_CACHE_SIZE:
+            _search_cache.popitem(last=False)
+    return result
+
+
+def clear_search_cache() -> None:
+    with _cache_lock:
+        _search_cache.clear()
+        _figures_cache.clear()
+
+
+def _search(session: Session, release: Release, flt: SearchFilter) -> SearchResultOut:
     with session.begin():
-        total = stcm_repo.count_results(session, release.release_id, flt)
+        stcm_repo.prepare_search(session, release.release_id, flt)
+        total = stcm_repo.count_results(session, flt)
         pages = max(1, -(-total // flt.page_size))
         if flt.page > pages:
             flt.page = pages
-        rows = stcm_repo.search(session, release.release_id, flt)
-        counts = stcm_repo.facet_counts(session, release.release_id, flt)
+        rows = stcm_repo.search(session, flt)
+        counts = stcm_repo.facet_counts(session, flt)
         target = _target(session, release, flt.target_concept) if flt.target_concept is not None else None
     facets = _build_facets(flt, counts)
     return SearchResultOut(filter=flt, rows=rows, total=total, facets=facets, pages=pages, target=target)
@@ -102,11 +145,50 @@ def _target(session: Session, release: Release, concept_id: int) -> dict[str, An
     }
 
 
+@dataclass
+class SuggestionsOut:
+    sources: Sequence[RowMapping]
+    targets: Sequence[RowMapping]
+
+
+SUGGESTION_LIMIT = 6
+
+
+def suggestions(session: Session, release: Release, query: str, scope: str) -> SuggestionsOut:
+    """Suggestions instantanées : codes source et concepts cibles correspondant à la saisie."""
+    query = query.strip()
+    if len(query) < 2 and not query.isdigit():
+        return SuggestionsOut([], [])
+    with session.begin():
+        stcm_repo.apply_search_settings(session)
+        sources = (
+            stcm_repo.suggest_source_codes(session, release.release_id, query, SUGGESTION_LIMIT)
+            if scope in ("all", "source")
+            else []
+        )
+        targets = (
+            stcm_repo.suggest_targets(session, release.release_id, query, SUGGESTION_LIMIT)
+            if scope in ("all", "target")
+            else []
+        )
+    return SuggestionsOut(sources, targets)
+
+
+def warm_up(session: Session) -> None:
+    """Précalcule la page de recherche par défaut (dernière release publiée) au démarrage."""
+    release = release_service.resolve_release(session, None)
+    if release is not None:
+        search(session, release, SearchFilter(release=release.label))
+        key_figures(session, release)
+
+
 def _build_facets(flt: SearchFilter, counts: dict[str, list[tuple[str | None, int]]]) -> list[FacetOut]:
     facets: list[FacetOut] = []
     for name, label in FACET_LABELS.items():
+        if name == "quality" and not get_settings().show_quality:
+            continue
         selected = set(flt.facet_values(name))
-        facet = FacetOut(name=name, label=label)
+        facet = FacetOut(name=name, label=label, collapsed=name in COLLAPSED_FACETS and not selected)
         seen: set[str] = set()
         for value, count in counts.get(name, []):
             key = NULL_VALUE if value is None else value
@@ -129,9 +211,23 @@ def _build_facets(flt: SearchFilter, counts: dict[str, list[tuple[str | None, in
     return facets
 
 
+_figures_cache: dict[tuple[int, str], RowMapping] = {}
+
+
 def key_figures(session: Session, release: Release) -> RowMapping:
+    """Chiffres clés de l'accueil, réutilisés tant que les données de la release ne changent pas."""
+    key = _cache_key(session, release, SearchFilter())[:2]
+    with _cache_lock:
+        cached = _figures_cache.get(key)
+    if cached is not None:
+        return cached
     with session.begin():
-        return stcm_repo.key_figures(session, release.release_id)
+        figures = stcm_repo.key_figures(session, release.release_id)
+    with _cache_lock:
+        if len(_figures_cache) > 64:
+            _figures_cache.clear()
+        _figures_cache[key] = figures
+    return figures
 
 
 def quality_summary(session: Session, release: Release) -> tuple[list[str], list[dict[str, Any]]]:

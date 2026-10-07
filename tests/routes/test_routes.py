@@ -327,3 +327,14 @@ def test_target_is_clickable_in_search_and_detail(client: TestClient, session: S
     assert "/mL" not in reverse.text
     detail = client.get("/mappings/LABO/GLU?release=v1.0")
     assert "target_concept=1001" in detail.text
+
+
+def test_suggest_route_and_highlight(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    fragment = client.get("/search-terms/suggest?release=v1.0&query=glu&scope=all")
+    assert fragment.status_code == 200
+    assert "<mark>GLU</mark>" in fragment.text and "target_concept=1001" in fragment.text
+    assert client.get("/search-terms/suggest?release=v1.0&query=g").text.strip() == ""
+    page = client.get("/search-terms/terms?release=v1.0&query=glu", headers=HX)
+    assert "<mark>GLU</mark>" in page.text and "triés par pertinence" in page.text
+    assert "Qualité" not in page.text  # rubrique masquée par défaut

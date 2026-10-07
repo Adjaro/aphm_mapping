@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     properties_subdir: str = "30_properties"
     import_chunk_size: int = 50_000
     max_upload_mb: int = 200
+    # Rubrique « Qualité » (drapeaux de v_mapping_quality) : masquée tant qu'elle n'est pas utilisée
+    show_quality: bool = False
+    # Précalcul de la page de recherche par défaut au démarrage du serveur
+    warm_up_search: bool = True
 
     @field_validator("upload_dir", "export_dir")
     @classmethod

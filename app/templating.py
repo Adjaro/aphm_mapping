@@ -1,13 +1,15 @@
 """Environnement Jinja2 et filtres d'affichage."""
 
 import hashlib
+import unicodedata
 from datetime import date, datetime
 from typing import Any
 from urllib.parse import quote, unquote
 
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
-from app.config import APP_NAME, BASE_DIR
+from app.config import APP_NAME, BASE_DIR, get_settings
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
@@ -70,6 +72,43 @@ def user_label(value: Any) -> str:
     return unquote(str(value)) if value else ""
 
 
+def _fold(char: str) -> str:
+    """Caractère sans accent et en minuscule (même longueur que l'original pour le surlignage)."""
+    decomposed = unicodedata.normalize("NFD", char)
+    base = "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+    return base[:1] or char
+
+
+def highlight(value: Any, query: str | None) -> Markup:
+    """Texte échappé, mots de la recherche surlignés (<mark>), casse et accents ignorés."""
+    source = "" if value is None else str(value)
+    words = [w for w in (query or "").split() if w][:8]
+    if not source or not words:
+        return Markup(escape(source))
+    folded = "".join(_fold(c) for c in source)
+    marks = [False] * len(source)
+    for word in words:
+        target = "".join(_fold(c) for c in word)
+        start = folded.find(target)
+        while target and start != -1:
+            for index in range(start, min(start + len(target), len(source))):
+                marks[index] = True
+            start = folded.find(target, start + len(target))
+    parts: list[str] = []
+    inside = False
+    for char, marked in zip(source, marks, strict=True):
+        if marked and not inside:
+            parts.append("<mark>")
+        elif not marked and inside:
+            parts.append("</mark>")
+        inside = marked
+        parts.append(str(escape(char)))
+    if inside:
+        parts.append("</mark>")
+    return Markup("".join(parts))
+
+
+templates.env.filters["highlight"] = highlight
 templates.env.filters["release_status"] = release_status
 templates.env.filters["release_kind"] = release_kind
 templates.env.filters["load_mode"] = load_mode
@@ -90,3 +129,4 @@ def _static_version() -> str:
 
 
 templates.env.globals["STATIC_VERSION"] = _static_version()
+templates.env.globals["SHOW_QUALITY"] = get_settings().show_quality

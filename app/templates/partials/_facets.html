@@ -3,10 +3,11 @@
   {% for facet in result.facets %}
   <div class="card">
     <div class="card-header d-flex justify-content-between" data-bs-toggle="collapse"
-         data-bs-target="#ref-facet-{{ facet.name }}" aria-expanded="true" role="button">
-      <span>{{ facet.label }}</span><i class="bi bi-chevron-down small"></i>
+         data-bs-target="#ref-facet-{{ facet.name }}" aria-expanded="{{ 'false' if facet.collapsed else 'true' }}" role="button">
+      <span>{{ facet.label }}{% if facet.collapsed %} <span class="text-secondary fw-normal small">({{ facet.values|length }})</span>{% endif %}</span>
+      <i class="bi bi-chevron-down small"></i>
     </div>
-    <div id="ref-facet-{{ facet.name }}" class="collapse show">
+    <div id="ref-facet-{{ facet.name }}" class="collapse {{ '' if facet.collapsed else 'show' }}">
       <div class="ref-facet-values">
         {% for item in facet.values %}
         <div class="form-check">

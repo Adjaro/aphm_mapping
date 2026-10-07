@@ -65,6 +65,17 @@ def search_terms(request: Request, session: SessionDep) -> Response:
     return render(request, session, "pages/search_results.html", context, current)
 
 
+@router.get("/search-terms/suggest", response_class=HTMLResponse)
+def suggest(request: Request, session: SessionDep, query: str = "", scope: str = "all") -> Response:
+    """Fragment : suggestions instantanées (codes source, concepts cibles) pendant la saisie."""
+    current = release_service.resolve_release(session, request.query_params.get("release") or None)
+    if current is None or scope not in SCOPE_LABELS:
+        return render_fragment(request, "partials/_suggestions.html", {"suggestions": None})
+    found = search_service.suggestions(session, current, query, scope)
+    context = {"suggestions": found, "query": query, "release_label": current.label}
+    return render_fragment(request, "partials/_suggestions.html", context)
+
+
 @router.get("/search-terms/terms/export.csv")
 def export_search(request: Request, session: SessionDep) -> Response:
     flt = parse_filter(request)

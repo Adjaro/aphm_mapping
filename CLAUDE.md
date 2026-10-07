@@ -100,7 +100,9 @@ omop-referentiel/
 │   │   ├── 06_audit_statement_trigger.sql
 │   │   ├── 07_audit_update_hash_join.sql
 │   │   ├── 08_diff_codes.sql
-│   │   └── 09_athena_reference.sql
+│   │   ├── 09_athena_reference.sql
+│   │   ├── 10_search_text.sql
+│   │   └── 11_search_text_column.sql
 │   └── seed/                   # jeux de données de démonstration / test
 ├── scripts/
 │   ├── migrate.py              # applique db/ddl/*.sql non encore appliqués
@@ -185,6 +187,8 @@ Base `omop_referentiel`, deux schémas :
 | `mapping.athena_vocabulary_map` (09) | `source_vocabulary_id` local → `vocabulary_id` Athena, normalisation des codes (points, casse) |
 | `mapping.athena_maps_to` (09) | Copie locale des concepts Athena paramétrés et de leurs « Maps to » valides (remplacée à chaque synchronisation) |
 | `mapping.compare_athena()` (09) | Statut de chaque mapping face à Athena : SAME / DIFFERENT / MISSING_LOCAL / ATHENA_NO_MAPPING / CODE_NOT_IN_ATHENA |
+| `mapping.normalize_text()` (10) | Minuscules sans accents (extension `unaccent`), IMMUTABLE |
+| `source_to_concept_map.search_text` (11) | Colonne générée : code + description source normalisés, index trigram ; exclue de `diff_releases` et de l'affichage de l'audit |
 | Triggers `stcm_audit_update` / `stcm_audit_delete` (06, 07) | Audit ensembliste (FOR EACH STATEMENT + tables de transition) remplaçant `stcm_audit` ; même contenu d'`audit_log` |
 
 ### Invariants (ne jamais les contourner)
@@ -220,8 +224,16 @@ Nom affiché de l'application : « Référentiel mappings OMOP — AP-HM ».
   (Recherche, Import, Releases, Export, Comparer), un menu **Avancé** (Comparaison Athena, Qualité,
   paramètres Base Athena et Colonnes personnalisées, API) et le **sélecteur de release** à droite
   (par défaut : dernière publiée).
-- **Barre de recherche** pleine largeur sous le bandeau : recherche sur `source_code` et
-  `source_code_description` (trigram, insensible à la casse), plus le libellé du concept cible.
+- **Barre de recherche** pleine largeur sous le bandeau : texte libre multi-mots (chaque mot, dans
+  n'importe quel ordre, doit apparaître dans le code, le libellé source ou le libellé / l'ID du concept
+  cible ; casse et accents ignorés), portée « Tout / Codes source / Concepts cibles », tri par pertinence
+  (code ou ID exact d'abord), mots trouvés surlignés, suggestions instantanées sous la barre.
+- **Recherche inverse** : un clic sur une cible filtre la recherche sur ce concept
+  (`target_concept=`) et liste tous les codes source qui y sont mappés.
+- **Rapidité** : la recherche est calculée une fois par requête dans `tmp_search` (table temporaire),
+  puis comptage, page et facettes la lisent ; résultats mis en cache (release figée : définitif ;
+  release ouverte : empreinte des données) et page par défaut précalculée au démarrage.
+- La rubrique **Qualité** (facette, colonne, chiffre clé, menu) est masquée tant que `SHOW_QUALITY=false`.
 - **Panneau de facettes à gauche** (≈ 25 % de largeur), chaque facette repliable, avec une case à
   cocher par valeur et le **nombre de résultats** à côté, triées par effectif décroissant :
   Vocabulaire source, Domaine, Vocabulaire cible, Statut (`mapping_status`), Équivalence,
@@ -266,6 +278,7 @@ Nom affiché de l'application : « Référentiel mappings OMOP — AP-HM ».
 | GET | `/` | Accueil, recherche centrée, chiffres clés |
 | GET | `/search-terms/terms` | Page de recherche (page complète ou fragment si `HX-Request`) |
 | GET | `/search-terms/terms/export.csv` | Export CSV de la recherche courante |
+| GET | `/search-terms/suggest?query=&scope=&release=` | Suggestions instantanées (codes source, concepts cibles) pendant la saisie (fragment) |
 | GET | `/mappings/{source_vocabulary_id}/{source_code}` | Fiche code source |
 | GET/POST | `/mappings/{stcm_id}/edit` | Formulaire de correction (fragment) |
 | GET | `/vocab/concepts/lookup` | Sélecteur de concept cible (fragment, `?q=&domain=`) |
@@ -1441,5 +1454,121 @@ RETURNS TABLE (
       FROM s
       JOIN j ON j.stcm_id = s.stcm_id
       LEFT JOIN vocab.concept c ON c.concept_id = s.target_concept_id;
+$$;
+```
+
+### `db/ddl/10_search_text.sql`
+
+```sql
+-- =====================================================================
+-- 10 — Recherche plein texte insensible à la casse et aux accents
+-- Prérequis : 03_mapping.sql
+--   * extension unaccent (extension « trusted » : le propriétaire de la base peut la créer)
+--   * mapping.normalize_text(text) : minuscules sans accents, IMMUTABLE (utilisable dans un index)
+--   * index trigram sur le code et la description source normalisés
+-- La recherche découpe la saisie en mots ; chaque mot doit apparaître dans le code, la
+-- description source ou le libellé du concept cible (dans n'importe quel ordre).
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+CREATE OR REPLACE FUNCTION mapping.normalize_text(p_value text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT lower(public.unaccent('public.unaccent'::regdictionary, coalesce(p_value, '')));
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_stcm_code_norm_trgm
+    ON mapping.source_to_concept_map USING gin (mapping.normalize_text(source_code) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_stcm_desc_norm_trgm
+    ON mapping.source_to_concept_map USING gin (mapping.normalize_text(source_code_description) gin_trgm_ops);
+```
+
+### `db/ddl/11_search_text_column.sql`
+
+```sql
+-- =====================================================================
+-- 11 — Texte de recherche précalculé (rapidité de la recherche plein texte)
+-- Prérequis : 05_diff_releases_perf.sql, 10_search_text.sql
+--   * source_to_concept_map.search_text : code + description source, minuscules sans accents,
+--     colonne générée (STORED) recalculée par PostgreSQL à chaque INSERT / UPDATE, index trigram
+--   * les index d'expression de 10 deviennent inutiles et sont supprimés
+--   * diff_releases (05) : search_text exclu de old_row / new_row / changed_fields (colonne technique)
+-- =====================================================================
+
+ALTER TABLE mapping.source_to_concept_map
+    ADD COLUMN IF NOT EXISTS search_text text
+    GENERATED ALWAYS AS (
+        mapping.normalize_text(source_code || ' ' || coalesce(source_code_description, ''))
+    ) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_stcm_search_text_trgm
+    ON mapping.source_to_concept_map USING gin (search_text gin_trgm_ops);
+
+DROP INDEX IF EXISTS mapping.idx_stcm_code_norm_trgm;
+DROP INDEX IF EXISTS mapping.idx_stcm_desc_norm_trgm;
+
+CREATE OR REPLACE FUNCTION mapping.diff_releases(p_from text, p_to text)
+RETURNS TABLE (
+    change_type          text,
+    source_vocabulary_id varchar,
+    source_code          varchar,
+    target_concept_id    int,
+    relationship_id      varchar,
+    changed_fields       text[],
+    old_row              jsonb,
+    new_row              jsonb
+) LANGUAGE sql STABLE AS $$
+    WITH excl AS (
+        SELECT ARRAY['stcm_id', 'release_id', 'import_batch_id', 'created_at', 'updated_at', 'search_text'] AS cols
+    ),
+    a AS (
+        SELECT s.*
+          FROM mapping.source_to_concept_map s
+         WHERE s.release_id = (SELECT r.release_id FROM mapping.release r WHERE r.label = p_from)
+    ),
+    b AS (
+        SELECT s.*
+          FROM mapping.source_to_concept_map s
+         WHERE s.release_id = (SELECT r.release_id FROM mapping.release r WHERE r.label = p_to)
+    ),
+    d AS (
+        SELECT CASE WHEN a.stcm_id IS NULL THEN NULL ELSE to_jsonb(a) - (SELECT cols FROM excl) END AS aj,
+               CASE WHEN b.stcm_id IS NULL THEN NULL ELSE to_jsonb(b) - (SELECT cols FROM excl) END AS bj,
+               coalesce(b.source_vocabulary_id, a.source_vocabulary_id) AS source_vocabulary_id,
+               coalesce(b.source_code,          a.source_code)          AS source_code,
+               coalesce(b.target_concept_id,    a.target_concept_id)    AS target_concept_id,
+               coalesce(b.relationship_id,      a.relationship_id)      AS relationship_id
+          FROM a
+          FULL JOIN b
+            ON  a.source_vocabulary_id = b.source_vocabulary_id
+            AND a.source_code          = b.source_code
+            AND a.target_concept_id    = b.target_concept_id
+            AND a.relationship_id      = b.relationship_id
+         WHERE a.stcm_id IS NULL
+            OR b.stcm_id IS NULL
+            OR (a.source_concept_id, a.source_code_description, a.target_vocabulary_id, a.valid_start_date,
+                a.valid_end_date, a.invalid_reason, a.domain_id, a.source_frequency, a.mapping_status,
+                a.equivalence, a.mapping_comment, a.mapped_by, a.reviewed_by, a.reviewed_at, a.extra)
+               IS DISTINCT FROM
+               (b.source_concept_id, b.source_code_description, b.target_vocabulary_id, b.valid_start_date,
+                b.valid_end_date, b.invalid_reason, b.domain_id, b.source_frequency, b.mapping_status,
+                b.equivalence, b.mapping_comment, b.mapped_by, b.reviewed_by, b.reviewed_at, b.extra)
+    )
+    SELECT
+        CASE WHEN d.aj IS NULL THEN 'ADDED'
+             WHEN d.bj IS NULL THEN 'REMOVED'
+             ELSE 'MODIFIED' END,
+        d.source_vocabulary_id,
+        d.source_code,
+        d.target_concept_id,
+        d.relationship_id,
+        CASE WHEN d.aj IS NOT NULL AND d.bj IS NOT NULL THEN
+            ARRAY(SELECT k FROM jsonb_object_keys(d.bj) k
+                   WHERE (d.aj -> k) IS DISTINCT FROM (d.bj -> k)
+                   ORDER BY k)
+        END,
+        d.aj,
+        d.bj
+    FROM d;
 $$;
 ```

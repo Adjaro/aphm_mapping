@@ -6,7 +6,7 @@
       hx-get="/search-terms/terms" hx-target="#ref-search-body" hx-push-url="true"
       hx-trigger="change, submit, keyup changed delay:400ms from:#ref-query"
       hx-indicator="#ref-search-body">
-  <div class="ref-searchbar mb-3">
+  <div class="ref-searchbar mb-3 position-relative">
     <div class="input-group">
       <span class="input-group-text"><i class="bi bi-search"></i></span>
       <select name="scope" class="form-select ref-scope-select" aria-label="Rechercher dans"
@@ -16,8 +16,15 @@
         {% endfor %}
       </select>
       <input id="ref-query" type="search" name="query" value="{{ flt.query }}" class="form-control"
-             placeholder="Code source, description, libellé ou ID du concept cible" aria-label="Recherche" autocomplete="off">
+             placeholder="Texte libre : code, libellé source, libellé ou ID du concept cible…  ( / pour revenir ici)"
+             aria-label="Recherche" autocomplete="off"
+             hx-get="/search-terms/suggest" hx-trigger="input changed delay:200ms, focus" hx-target="#ref-suggest"
+             hx-include="[name=release],[name=scope]" hx-sync="this:replace">
       <button class="btn btn-primary" type="submit">Rechercher</button>
+    </div>
+    <div id="ref-suggest" class="ref-suggest"></div>
+    <div class="small text-secondary mt-1">
+      Plusieurs mots possibles, dans n'importe quel ordre (ex. <em>chlorure sodium 0,9</em>) ; majuscules et accents ignorés.
     </div>
   </div>
   <div id="ref-search-body" class="ref-loading">

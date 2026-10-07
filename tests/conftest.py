@@ -17,6 +17,7 @@ if not _TEST_URL:
     raise RuntimeError("TEST_DATABASE_URL doit être défini (fichier .env ou variable d'environnement).")
 # L'application doit utiliser la base de test : à faire AVANT l'import de app.db
 os.environ["DATABASE_URL"] = _TEST_URL
+os.environ["WARM_UP_SEARCH"] = "false"  # pas de préchauffage en arrière-plan pendant les tests
 get_settings.cache_clear()
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -25,6 +26,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.db import SessionLocal, libpq_dsn  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import search_service  # noqa: E402
 from scripts.migrate import migrate  # noqa: E402
 
 RESET_SQL = """
@@ -83,6 +85,7 @@ def clean_data(test_database: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     with psycopg.connect(libpq_dsn(test_database), autocommit=True) as conn:
         conn.execute(TRUNCATE_SQL)
     monkeypatch.setattr(get_settings(), "upload_dir", tmp_path / "uploads")
+    search_service.clear_search_cache()  # les identifiants de release sont réutilisés d'un test à l'autre
     yield
 
 

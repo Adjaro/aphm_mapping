@@ -1,0 +1,28 @@
+{# Cible HTMX : #ref-suggest (suggestions instantanées sous la barre de recherche) #}
+{% if suggestions and (suggestions.sources or suggestions.targets) %}
+<div class="ref-suggest-panel shadow-sm border rounded bg-white">
+  {% if suggestions.sources %}
+  <div class="ref-suggest-title"><i class="bi bi-upc-scan"></i> Codes source</div>
+  {% for s in suggestions.sources %}
+    <a class="ref-suggest-item" href="/mappings/{{ s.source_vocabulary_id|quote_path }}/{{ s.source_code|quote_path }}?release={{ release_label }}">
+      <span class="fw-semibold">{{ s.source_code|highlight(query) }}</span>
+      <span class="text-secondary small">{{ s.source_vocabulary_id }}</span>
+      <span class="ref-suggest-text">{{ (s.description or '')|highlight(query) }}</span>
+      {% if s.n_targets > 1 %}<span class="badge rounded-pill text-bg-warning ref-card-badge">×{{ s.n_targets }}</span>{% endif %}
+    </a>
+  {% endfor %}
+  {% endif %}
+  {% if suggestions.targets %}
+  <div class="ref-suggest-title"><i class="bi bi-bullseye"></i> Concepts cibles <span class="fw-normal">— voir les codes source qui y sont mappés</span></div>
+  {% for t in suggestions.targets %}
+    <a class="ref-suggest-item" href="/search-terms/terms?release={{ release_label }}&target_concept={{ t.target_concept_id }}">
+      <span class="fw-semibold">{{ t.target_concept_id|string|highlight(query) }}</span>
+      <span class="ref-suggest-text">{{ (t.concept_name or '(concept introuvable)')|highlight(query) }}</span>
+      <span class="text-secondary small">{{ t.target_vocabulary_id }}{% if t.domain_id %} · {{ t.domain_id }}{% endif %}</span>
+      <span class="badge rounded-pill text-bg-light border ref-card-badge">{{ t.n_sources|fmt_int }} code{{ 's' if t.n_sources > 1 }}</span>
+    </a>
+  {% endfor %}
+  {% endif %}
+  <div class="ref-suggest-footer small text-secondary">Entrée : voir tous les résultats · Échap : fermer</div>
+</div>
+{% endif %}

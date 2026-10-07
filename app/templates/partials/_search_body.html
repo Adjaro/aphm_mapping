@@ -50,7 +50,8 @@
     {% endif %}
 
     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-      <div><strong>{{ result.total|fmt_int }}</strong> résultat{{ 's' if result.total > 1 }} — release {{ release.label }}</div>
+      <div><strong>{{ result.total|fmt_int }}</strong> résultat{{ 's' if result.total > 1 }} — release {{ release.label }}
+        {% if flt.sort == 'relevance' and flt.query %}<span class="small text-secondary">· triés par pertinence (code exact d'abord)</span>{% endif %}</div>
       <div class="d-flex align-items-center gap-2">
         <label class="small text-secondary" for="ref-page-size">Par page</label>
         <select id="ref-page-size" name="page_size" class="form-select form-select-sm" style="width: auto">
