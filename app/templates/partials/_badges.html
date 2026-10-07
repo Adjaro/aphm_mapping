@@ -1,0 +1,16 @@
+{# Macros d'affichage des statuts et drapeaux qualité (couleur + libellé texte) #}
+{% macro status_badge(status) -%}
+  <span class="ref-status ref-status-{{ status }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro quality_badge(flag) -%}
+  {% if flag == 'OK' %}
+    <span class="ref-quality ref-quality-ok"><i class="bi bi-check-circle-fill"></i> OK</span>
+  {% else %}
+    <span class="ref-quality ref-quality-ko"><i class="bi bi-x-circle-fill"></i> {{ flag }}</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro target_label(name) -%}
+  {% if name %}{{ name }}{% else %}<span class="ref-target-missing">(concept introuvable)</span>{% endif %}
+{%- endmacro %}

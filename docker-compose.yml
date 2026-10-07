@@ -1,0 +1,15 @@
+# PostgreSQL 16 de développement (poste Windows / Linux). Non utilisé en production.
+services:
+  postgres:
+    image: postgres:16
+    container_name: omop-referentiel-pg
+    environment:
+      POSTGRES_USER: omop
+      POSTGRES_PASSWORD: omop
+      POSTGRES_DB: omop_referentiel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

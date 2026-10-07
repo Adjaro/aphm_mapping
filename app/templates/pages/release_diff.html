@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% set nav = 'releases' %}
+{% block title %}Diff {{ from_label }} → {{ to_label }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<h1 class="h4">Comparer deux releases</h1>
+<form method="get" action="/releases/diff" class="row g-2 align-items-end mb-3">
+  <div class="col-auto"><label class="form-label small" for="ref-from">Depuis</label>
+    <select id="ref-from" name="from" class="form-select form-select-sm">
+      {% for r in releases %}<option {% if r.label == from_label %}selected{% endif %}>{{ r.label }}</option>{% endfor %}
+    </select></div>
+  <div class="col-auto"><label class="form-label small" for="ref-to">Vers</label>
+    <select id="ref-to" name="to" class="form-select form-select-sm">
+      {% for r in releases %}<option {% if r.label == to_label %}selected{% endif %}>{{ r.label }}</option>{% endfor %}
+    </select></div>
+  <div class="col-auto"><button class="btn btn-primary btn-sm">Comparer</button></div>
+</form>
+{% if diff_error %}<div class="alert alert-danger py-2">{{ diff_error }}</div>{% endif %}
+
+{% if result %}
+{% set base = '/releases/diff?from=' ~ (result.from_label|urlencode) ~ '&to=' ~ (result.to_label|urlencode) %}
+{% set ct_params %}{% for c in result.change_types %}&change_type={{ c|urlencode }}{% endfor %}{% endset %}
+{% set sv_params %}{% for v in result.source_vocabularies %}&source_vocabulary={{ v|urlencode }}{% endfor %}{% endset %}
+<div class="row g-3">
+  <aside class="col-lg-3">
+    <form method="get" action="/releases/diff" class="ref-facet-panel d-flex flex-column gap-2">
+      <input type="hidden" name="from" value="{{ result.from_label }}"><input type="hidden" name="to" value="{{ result.to_label }}">
+      {% for facet, label, selected in [('change_type', 'Type de changement', result.change_types), ('source_vocabulary', 'Vocabulaire source', result.source_vocabularies)] %}
+      <div class="card">
+        <div class="card-header">{{ label }}</div>
+        <div class="ref-facet-values">
+          {% for value, count in result.facets[facet] %}
+          <div class="form-check">
+            <span><input class="form-check-input" type="checkbox" name="{{ facet }}" value="{{ value }}" id="ref-d-{{ facet }}-{{ loop.index }}"
+                         {% if value in selected %}checked{% endif %} data-ref-autosubmit>
+              <label class="form-check-label" for="ref-d-{{ facet }}-{{ loop.index }}">{{ value }}</label></span>
+            <span class="ref-facet-count">{{ count|fmt_int }}</span>
+          </div>
+          {% else %}<div class="small text-secondary">Aucune différence</div>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </form>
+  </aside>
+  <section class="col-lg-9">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div><strong>{{ result.total|fmt_int }}</strong> différence{{ 's' if result.total > 1 }} entre {{ result.from_label }} et {{ result.to_label }}</div>
+      <a class="btn btn-sm btn-outline-secondary" href="/releases/diff/export.csv?from={{ result.from_label|urlencode }}&to={{ result.to_label|urlencode }}{{ ct_params }}{{ sv_params }}">
+        <i class="bi bi-download"></i> Exporter CSV</a>
+    </div>
+    <div class="table-responsive bg-white border rounded">
+    <table class="table table-sm table-hover mb-0 ref-results-table">
+      <thead class="table-light"><tr><th>Changement</th><th>Vocab. source</th><th>Code source</th><th>ID cible</th><th>Relation</th><th>Champs modifiés</th></tr></thead>
+      <tbody>
+      {% for row in result.rows %}
+        {% set colors = {'ADDED': 'text-bg-success', 'REMOVED': 'text-bg-danger', 'MODIFIED': 'text-bg-warning'} %}
+        <tr data-href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ result.to_label if row.change_type != 'REMOVED' else result.from_label }}">
+          <td><span class="badge {{ colors[row.change_type] }}">{{ row.change_type }}</span></td>
+          <td>{{ row.source_vocabulary_id }}</td>
+          <td class="fw-semibold">{{ row.source_code }}</td>
+          <td>{{ row.target_concept_id }}</td>
+          <td>{{ row.relationship_id }}</td>
+          <td class="small">
+            {% for f in row.changed_fields or [] %}
+              <div><code>{{ f }}</code> : {{ (row.old_row or {}).get(f)|fmt_value }} → <strong>{{ (row.new_row or {}).get(f)|fmt_value }}</strong></div>
+            {% endfor %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-secondary py-4">Aucune différence.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if result.pages > 1 %}
+    <nav class="mt-2"><ul class="pagination pagination-sm">
+      {% for p in range(1, result.pages + 1) %}{% if p <= 2 or p > result.pages - 2 or (p - result.page)|abs <= 2 %}
+        <li class="page-item {% if p == result.page %}active{% endif %}"><a class="page-link" href="{{ base }}{{ ct_params }}{{ sv_params }}&page={{ p }}">{{ p }}</a></li>
+      {% endif %}{% endfor %}
+    </ul></nav>
+    {% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

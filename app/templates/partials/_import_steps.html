@@ -1,0 +1,7 @@
+{# Bandeau des étapes de l'assistant d'import (inclus dans les pages, pas de cible HTMX) #}
+<div class="ref-steps d-flex gap-2 mb-3">
+  {% for number, label in [(1, 'Fichier'), (2, 'Colonnes'), (3, 'Validation'), (4, 'Rapport')] %}
+    <span class="badge {{ 'text-bg-primary' if number == step else ('text-bg-success' if number < step else 'text-bg-light border') }}">
+      {{ number }}. {{ label }}</span>
+  {% endfor %}
+</div>

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set nav = 'imports' %}
+{% set step = 4 %}
+{% set r = report %}
+{% set b = r.batch %}
+{% block title %}Import n° {{ b.import_batch_id }} — rapport{% endblock %}
+{% block content %}
+<h1 class="h4">Import n° {{ b.import_batch_id }} — {{ b.file_name }} {% include "partials/_import_status.html" %}</h1>
+{% include "partials/_import_steps.html" %}
+{% if b.status == 'pending' %}
+  <div class="alert alert-info py-2">Import non encore chargé : <a href="/imports/{{ b.import_batch_id }}/columns">reprendre l'assistant</a>.</div>
+{% endif %}
+<div class="row g-3 text-center mb-3">
+  <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure">{{ b.rows_read|fmt_int }}</div>lues</div></div></div>
+  <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure text-success">{{ b.rows_loaded|fmt_int }}</div>chargées</div></div></div>
+  <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure text-danger">{{ b.rows_rejected|fmt_int }}</div>rejetées</div></div></div>
+  <div class="col-md-6 text-start small">
+    <div>Release : <strong>{{ r.release.label }}</strong> · mode <code>{{ b.load_mode }}</code></div>
+    <div>Auteur : {{ b.created_by or '' }} · {{ b.created_at|fmt_dt }}</div>
+    <div class="text-truncate" title="{{ b.file_sha256 }}">SHA-256 : <code>{{ b.file_sha256 }}</code></div>
+    {% if b.rows_loaded %}
+      <a class="btn btn-sm btn-outline-primary mt-1" href="/search-terms/terms?release={{ r.release.label }}&import_batch={{ b.import_batch_id }}">
+        <i class="bi bi-search"></i> Voir les lignes de cet import</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if r.errors_total %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h2 class="h6 mb-0">Lignes rejetées ({{ r.errors_total|fmt_int }})</h2>
+  <a class="btn btn-sm btn-outline-secondary" href="/imports/{{ b.import_batch_id }}/errors.csv"><i class="bi bi-download"></i> Exporter les rejets (CSV)</a>
+</div>
+<div class="table-responsive bg-white border rounded">
+<table class="table table-sm mb-0">
+  <thead class="table-light"><tr><th>Ligne</th><th>Erreur</th><th>Ligne brute</th></tr></thead>
+  <tbody>
+  {% for e in r.errors %}
+    <tr><td>{{ e.row_number }}</td><td class="text-danger">{{ e.error_message }}</td>
+      <td class="small text-secondary">{{ e.raw_row|tojson|truncate(300) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if r.pages > 1 %}
+<nav class="mt-2"><ul class="pagination pagination-sm">
+  {% for p in range(1, r.pages + 1) %}{% if p <= 3 or p > r.pages - 3 or (p - r.page)|abs <= 2 %}
+    <li class="page-item {% if p == r.page %}active{% endif %}"><a class="page-link" href="?page={{ p }}">{{ p }}</a></li>
+  {% endif %}{% endfor %}
+</ul></nav>
+{% endif %}
+{% endif %}
+{% endblock %}

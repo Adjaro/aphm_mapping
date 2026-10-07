@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% set nav = 'releases' %}
+{% set o = overview %}
+{% block title %}Releases — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Releases</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="/releases/diff"><i class="bi bi-file-diff"></i> Comparer deux releases</a>
+</div>
+
+<div class="row g-3 mb-3">
+  {% if not o.has_releases %}
+  <div class="col-lg-4">
+    <div class="card"><div class="card-header py-1">Release initiale</div><div class="card-body">
+      <form hx-post="/releases/initial" hx-confirm="Créer la release majeure initiale (vide) ?">
+        <div class="mb-2"><label class="form-label" for="ref-init-label">Libellé</label>
+          <input id="ref-init-label" name="label" value="v1.0" class="form-control form-control-sm" required></div>
+        <div class="mb-2"><label class="form-label" for="ref-init-desc">Description</label>
+          <input id="ref-init-desc" name="description" class="form-control form-control-sm"></div>
+        <button class="btn btn-primary btn-sm">Créer</button>
+      </form>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if o.latest_published and not o.staging %}
+  <div class="col-lg-4">
+    <div class="card"><div class="card-header py-1"><i class="bi bi-plus-circle"></i> Créer la staging</div><div class="card-body">
+      <p class="small text-secondary">Copie complète de <strong>{{ o.latest_published.label }}</strong> (dernière publiée), modifiable par import et correction.</p>
+      <form hx-post="/releases/staging" hx-confirm="Créer la staging en copiant toutes les lignes de {{ o.latest_published.label }} ?">
+        <div class="mb-2"><label class="form-label" for="ref-stg-label">Libellé</label>
+          <input id="ref-stg-label" name="label" value="{{ o.suggested_staging_label or '' }}" class="form-control form-control-sm" required></div>
+        <div class="mb-2"><label class="form-label" for="ref-stg-desc">Description</label>
+          <input id="ref-stg-desc" name="description" class="form-control form-control-sm"></div>
+        <button class="btn btn-primary btn-sm">Créer la staging</button>
+      </form>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if o.staging %}
+  <div class="col-lg-4">
+    {% set n = o.lineage|selectattr('label', 'equalto', o.staging.label)|map(attribute='n_mappings')|first %}
+    <div class="card border-warning"><div class="card-header py-1"><i class="bi bi-arrow-up-circle"></i> Promouvoir la staging {{ o.staging.label }}</div><div class="card-body">
+      <p class="small text-secondary">Crée une nouvelle majeure (copie de {{ o.staging.label }}, {{ n|fmt_int }} mappings) puis archive la staging.</p>
+      <form hx-post="/releases/{{ o.staging.label|quote_path }}/promote"
+            hx-confirm="Promouvoir {{ o.staging.label }} ({{ n }} mappings) en nouvelle majeure ? La staging sera archivée et ne sera plus modifiable.">
+        <div class="mb-2"><label class="form-label" for="ref-promote-label">Libellé de la nouvelle majeure</label>
+          <input id="ref-promote-label" name="new_label" value="{{ o.suggested_major_label or '' }}" class="form-control form-control-sm" required></div>
+        <button class="btn btn-warning btn-sm">Promouvoir</button>
+      </form>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% for r in o.open_majors %}
+  <div class="col-lg-4">
+    {% set n = o.lineage|selectattr('label', 'equalto', r.label)|map(attribute='n_mappings')|first %}
+    <div class="card border-success"><div class="card-header py-1"><i class="bi bi-send-check"></i> Publier {{ r.label }}</div><div class="card-body">
+      <p class="small text-secondary">Fige et publie {{ r.label }} ({{ n|fmt_int }} mappings) ; elle devient la release consommée par le pipeline.</p>
+      <form hx-post="/releases/{{ r.label|quote_path }}/publish"
+            hx-confirm="Publier {{ r.label }} ({{ n }} mappings) ? La release sera figée définitivement.">
+        <div class="mb-2"><label class="form-label" for="ref-build-{{ loop.index }}">Référence du build CDM</label>
+          <input id="ref-build-{{ loop.index }}" name="cdm_build_ref" class="form-control form-control-sm" placeholder="ex. cdm_2026_10_aphm" required></div>
+        <button class="btn btn-success btn-sm">Publier</button>
+      </form>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="table-responsive bg-white border rounded">
+<table class="table table-sm table-hover mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th>Release</th><th>Type</th><th>Statut</th><th>Parente</th><th class="text-end">Mappings</th>
+    <th>Version vocabulaire</th><th>Build CDM</th><th>Créée le</th><th>Publiée le</th><th>Description</th><th></th>
+  </tr></thead>
+  <tbody>
+  {% for r in o.lineage %}
+    {% set colors = {'open': 'text-bg-primary', 'frozen': 'text-bg-info', 'published': 'text-bg-success', 'archived': 'text-bg-secondary'} %}
+    <tr>
+      <td class="fw-semibold"><a href="/search-terms/terms?release={{ r.label }}">{{ r.label }}</a></td>
+      <td>{{ 'majeure' if r.kind == 'major' else 'staging' }}</td>
+      <td><span class="badge {{ colors[r.status] }}">{{ r.status }}</span></td>
+      <td>{{ r.parent_label or '' }}</td>
+      <td class="text-end">{{ r.n_mappings|fmt_int }}</td>
+      <td class="small">{{ r.vocabulary_version or '' }}</td>
+      <td><code>{{ r.cdm_build_ref or '' }}</code></td>
+      <td>{{ r.created_at|fmt_dt }}</td>
+      <td>{{ r.published_at|fmt_dt }}</td>
+      <td class="small">{{ r.description or '' }}</td>
+      <td class="text-nowrap">
+        {% if r.parent_label %}<a class="btn btn-sm btn-link p-0" href="/releases/diff?from={{ r.parent_label }}&to={{ r.label }}">diff parente</a>{% endif %}
+        · <a class="btn btn-sm btn-link p-0" href="/api/releases/{{ r.label|quote_path }}/source_to_concept_map.csv">CSV CDM</a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="text-center text-secondary py-4">Aucune release.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="form-text mt-2">Cycle : majeure publiée → staging (copie) → imports / corrections → promotion en nouvelle majeure → publication avec la référence du build CDM.</p>
+{% endblock %}

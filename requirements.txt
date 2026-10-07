@@ -1,0 +1,21 @@
+# Dépendances figées (installation via miroir pip interne ou wheels hors ligne)
+fastapi==0.142.2
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+Jinja2==3.1.6
+python-multipart==0.0.32
+SQLAlchemy==2.1.3
+psycopg==3.3.6
+psycopg-binary==3.3.6
+pydantic==2.13.5
+pydantic_core==2.46.5
+pydantic-settings==2.15.0
+pandas==3.0.6
+openpyxl==3.1.5
+
+# Qualité / tests
+ruff==0.16.10
+mypy==2.4.0
+pandas-stubs==3.0.5.260914
+pytest==9.1.1
+httpx==0.28.1

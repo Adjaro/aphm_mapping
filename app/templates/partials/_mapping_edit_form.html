@@ -1,0 +1,106 @@
+{# Cible HTMX : #ref-edit-panel (formulaire de correction d'un mapping) #}
+{% set m = ctx.mapping %}
+<div class="card border-primary">
+  <div class="card-header d-flex justify-content-between align-items-center py-1">
+    <span><i class="bi bi-pencil"></i> Modifier le mapping {{ m.source_code }} — release {{ ctx.release.label }}</span>
+    <button type="button" class="btn-close btn-sm" aria-label="Fermer" data-ref-clear="ref-edit-panel"></button>
+  </div>
+  <div class="card-body">
+    {% if message %}<div class="alert alert-danger py-2">{{ message }}</div>{% endif %}
+    {% if not ctx.release.is_open %}
+      <div class="alert alert-warning py-2">La release {{ ctx.release.label }} n'est pas ouverte : modification impossible.</div>
+    {% else %}
+    <form hx-post="/mappings/{{ m.stcm_id }}/edit" hx-target="#ref-edit-panel">
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <label class="form-label fw-semibold">Concept cible</label>
+          <div class="input-group input-group-sm mb-1">
+            <input type="number" min="0" name="target_concept_id" value="{{ values.target_concept_id }}"
+                   class="form-control {% if errors.target_concept_id %}is-invalid{% endif %}" style="max-width: 9rem" required>
+            <span class="input-group-text flex-grow-1 text-truncate" id="ref-target-label">
+              {% if ctx.concept %}{{ ctx.concept.concept_name }} ({{ ctx.concept.vocabulary_id }}){% else %}(concept introuvable){% endif %}
+            </span>
+            {% if errors.target_concept_id %}<div class="invalid-feedback">{{ errors.target_concept_id }}</div>{% endif %}
+          </div>
+          <div class="border rounded p-2 bg-light">
+            <div class="row g-1 mb-1">
+              <div class="col-6">
+                <input type="search" name="q" class="form-control form-control-sm" placeholder="Rechercher un concept (libellé, code, ID)"
+                       hx-get="/vocab/concepts/lookup" hx-trigger="keyup changed delay:300ms, search"
+                       hx-target="#ref-concept-results" hx-include="closest form" autocomplete="off" aria-label="Recherche de concept">
+              </div>
+              <div class="col-4">
+                <select name="domain" class="form-select form-select-sm" hx-get="/vocab/concepts/lookup"
+                        hx-target="#ref-concept-results" hx-include="closest form" aria-label="Domaine">
+                  <option value="">Tous domaines</option>
+                  {% for domain in ctx.domains %}
+                    <option value="{{ domain }}" {% if domain == m.domain_id %}selected{% endif %}>{{ domain }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-2 d-flex align-items-center">
+                <input type="hidden" name="standard_only" value="0">
+                <div class="form-check form-check-inline small mb-0">
+                  <input class="form-check-input" type="checkbox" name="standard_only" value="1" id="ref-std" checked
+                         hx-get="/vocab/concepts/lookup" hx-target="#ref-concept-results" hx-include="closest form">
+                  <label class="form-check-label" for="ref-std">Standards</label>
+                </div>
+              </div>
+            </div>
+            <div id="ref-concept-results" class="list-group list-group-flush small" style="max-height: 14rem; overflow-y: auto"></div>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="ref-rel">Relation</label>
+              <select id="ref-rel" name="relationship_id" class="form-select form-select-sm {% if errors.relationship_id %}is-invalid{% endif %}">
+                {% for rel in relationships %}<option {% if rel == values.relationship_id %}selected{% endif %}>{{ rel }}</option>{% endfor %}
+              </select>
+              {% if errors.relationship_id %}<div class="invalid-feedback">{{ errors.relationship_id }}</div>{% endif %}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="ref-status">Statut</label>
+              <select id="ref-status" name="mapping_status" class="form-select form-select-sm {% if errors.mapping_status %}is-invalid{% endif %}">
+                {% for s in statuses %}<option {% if s == values.mapping_status %}selected{% endif %}>{{ s }}</option>{% endfor %}
+              </select>
+              {% if errors.mapping_status %}<div class="invalid-feedback">{{ errors.mapping_status }}</div>{% endif %}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold" for="ref-eq">Équivalence</label>
+              <select id="ref-eq" name="equivalence" class="form-select form-select-sm {% if errors.equivalence %}is-invalid{% endif %}">
+                <option value="">—</option>
+                {% for e in equivalences %}<option {% if e == values.equivalence %}selected{% endif %}>{{ e }}</option>{% endfor %}
+              </select>
+              {% if errors.equivalence %}<div class="invalid-feedback">{{ errors.equivalence }}</div>{% endif %}
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold" for="ref-comment">Commentaire</label>
+              <textarea id="ref-comment" name="mapping_comment" rows="2" class="form-control form-control-sm {% if errors.mapping_comment %}is-invalid{% endif %}">{{ values.mapping_comment }}</textarea>
+            </div>
+            {% for column in ctx.custom_columns %}
+              {% set field = custom_prefix ~ column.column_name %}
+              <div class="col-md-6">
+                <label class="form-label fw-semibold" for="ref-{{ field }}">{{ column.label }}{% if column.is_required %} *{% endif %}</label>
+                {% if column.allowed_values %}
+                  <select id="ref-{{ field }}" name="{{ field }}" class="form-select form-select-sm">
+                    <option value="">—</option>
+                    {% for v in column.allowed_values %}<option {% if v == values[field] %}selected{% endif %}>{{ v }}</option>{% endfor %}
+                  </select>
+                {% else %}
+                  <input id="ref-{{ field }}" name="{{ field }}" value="{{ values[field] }}" class="form-control form-control-sm"
+                         {% if column.data_type == 'date' %}type="date"{% elif column.data_type in ('integer', 'numeric') %}inputmode="decimal"{% endif %}>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          <div class="mt-3 d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save"></i> Enregistrer</button>
+            <span class="small text-secondary align-self-center">Auteur : {{ user }}</span>
+          </div>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>

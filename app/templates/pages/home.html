@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% set nav = 'home' %}
+{% block content %}
+<div class="ref-home-search text-center">
+  <h1 class="h3 mb-3">{{ APP_NAME }}</h1>
+  <p class="text-secondary">Recherche dans <code>source_to_concept_map</code> : code source, description ou libellé du concept cible.</p>
+  <form action="/search-terms/terms" method="get" class="mt-3">
+    {% if current_release %}<input type="hidden" name="release" value="{{ current_release.label }}">{% endif %}
+    <div class="input-group input-group-lg">
+      <input type="search" name="query" class="form-control" placeholder="Rechercher un code, une description, un concept…" autofocus
+             aria-label="Recherche">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> Rechercher</button>
+    </div>
+  </form>
+</div>
+
+{% if current_release and figures %}
+<div class="container" style="max-width: 60rem">
+  <h2 class="h6 text-secondary text-center mb-3">
+    Release <strong>{{ current_release.label }}</strong>
+    ({{ current_release.kind }}, {{ current_release.status }}{% if current_release.published_at %}, publiée le {{ current_release.published_at|fmt_dt }}{% endif %})
+  </h2>
+  <div class="row g-3 text-center">
+    {% set q = '/search-terms/terms?release=' ~ current_release.label %}
+    <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure">{{ figures.n_mappings|fmt_int }}</div><div class="text-secondary">mappings</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure">{{ figures.n_source_codes|fmt_int }}</div><div class="text-secondary">codes source</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure">{{ figures.n_source_vocabularies|fmt_int }}</div><div class="text-secondary">vocabulaires source</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure">
+        {% if figures.n_mappings %}{{ (100 * figures.n_quality_ok / figures.n_mappings)|round(1) }} %{% else %}—{% endif %}
+      </div><div class="text-secondary">cibles qualité OK</div></div></div></div>
+    <div class="col-4"><a class="text-decoration-none" href="{{ q }}&mapping_status=APPROVED"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure text-success">{{ figures.n_approved|fmt_int }}</div><span class="ref-status ref-status-APPROVED">APPROVED</span></div></div></a></div>
+    <div class="col-4"><a class="text-decoration-none" href="{{ q }}&mapping_status=UNCHECKED"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure text-secondary">{{ figures.n_unchecked|fmt_int }}</div><span class="ref-status ref-status-UNCHECKED">UNCHECKED</span></div></div></a></div>
+    <div class="col-4"><a class="text-decoration-none" href="{{ q }}&mapping_status=FLAGGED"><div class="card"><div class="card-body py-2">
+      <div class="ref-figure" style="color: var(--ref-flagged)">{{ figures.n_flagged|fmt_int }}</div><span class="ref-status ref-status-FLAGGED">FLAGGED</span></div></div></a></div>
+  </div>
+</div>
+{% elif not current_release %}
+<div class="alert alert-info text-center mx-auto" style="max-width: 40rem">
+  Aucune release. Créer la release initiale depuis la page <a href="/releases">Releases</a>,
+  ou charger des fichiers avec <code>scripts/load_usagi_dir.py</code>.
+</div>
+{% endif %}
+{% endblock %}

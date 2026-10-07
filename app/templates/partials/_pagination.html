@@ -1,0 +1,21 @@
+{# Cible HTMX : incluse dans #ref-search-body ; pagination #ref-pagination #}
+{% if result.pages > 1 %}
+<nav id="ref-pagination" class="d-flex justify-content-between align-items-center mt-2" aria-label="Pagination">
+  <span class="small text-secondary">Page {{ flt.page }} / {{ result.pages|fmt_int }}</span>
+  <ul class="pagination pagination-sm mb-0">
+    {% set first = [1, flt.page - 2]|max %}
+    {% set last = [result.pages, flt.page + 2]|min %}
+    {% macro page_link(number, label, disabled=False, active=False) -%}
+      {% set url = flt.url(page=number) %}
+      <li class="page-item {% if disabled %}disabled{% endif %} {% if active %}active{% endif %}">
+        <a class="page-link" href="{{ url }}" hx-get="{{ url }}" hx-target="#ref-search-body" hx-push-url="true">{{ label }}</a>
+      </li>
+    {%- endmacro %}
+    {{ page_link(1, '«', disabled=flt.page == 1) }}
+    {{ page_link(flt.page - 1 if flt.page > 1 else 1, '‹', disabled=flt.page == 1) }}
+    {% for number in range(first, last + 1) %}{{ page_link(number, number, active=number == flt.page) }}{% endfor %}
+    {{ page_link(flt.page + 1 if flt.page < result.pages else result.pages, '›', disabled=flt.page == result.pages) }}
+    {{ page_link(result.pages, '»', disabled=flt.page == result.pages) }}
+  </ul>
+</nav>
+{% endif %}

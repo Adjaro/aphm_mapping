@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% set nav = 'imports' %}
+{% set step = 1 %}
+{% block title %}Nouvel import — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<h1 class="h4">Nouvel import</h1>
+{% include "partials/_import_steps.html" %}
+{% if not target %}
+  <div class="alert alert-warning">Aucune release ouverte : <a href="/releases">créer la staging</a> avant d'importer.</div>
+{% else %}
+<div class="card" style="max-width: 44rem">
+  <div class="card-body">
+    <p class="mb-3">Release ciblée : <strong>{{ target.label }}</strong> ({{ target.kind }}, ouverte).</p>
+    {% if form_error %}<div class="alert alert-danger py-2">{{ form_error }}</div>{% endif %}
+    <form action="/imports/new" method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="ref-file">Fichier (.csv, .txt, .xlsx)</label>
+        <input id="ref-file" type="file" name="file" accept=".csv,.txt,.xlsx" required
+               class="form-control {% if form_error %}is-invalid{% endif %}">
+        <div class="form-text">Encodage (UTF-8 ou CP1252) et séparateur (; , tabulation) détectés automatiquement.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label fw-semibold" for="ref-vocab">Vocabulaire source (facultatif)</label>
+        <input id="ref-vocab" name="source_vocabulary_id" maxlength="20" class="form-control" placeholder="ex. APHM_LABO">
+        <div class="form-text">Permet de reprendre la correspondance de colonnes du dernier import de ce vocabulaire.</div>
+      </div>
+      <button class="btn btn-primary" type="submit"><i class="bi bi-arrow-right"></i> Envoyer et continuer</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/vendor/bootstrap-icons/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+{% set release_param = current_release.label if current_release else '' %}
+<nav class="navbar navbar-expand-lg navbar-dark ref-navbar">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-semibold" href="/{% if release_param %}?release={{ release_param }}{% endif %}">
+      <i class="bi bi-diagram-3"></i> {{ APP_NAME }}
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#ref-nav"
+            aria-controls="ref-nav" aria-expanded="false" aria-label="Menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="ref-nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link {% if nav == 'search' %}active{% endif %}"
+             href="/search-terms/terms{% if release_param %}?release={{ release_param }}{% endif %}">
+            <i class="bi bi-search"></i> Recherche</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if nav == 'imports' %}active{% endif %}" href="/imports"><i class="bi bi-upload"></i> Import</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if nav == 'releases' %}active{% endif %}" href="/releases"><i class="bi bi-tags"></i> Releases</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if nav == 'quality' %}active{% endif %}"
+             href="/quality{% if release_param %}?release={{ release_param }}{% endif %}">
+            <i class="bi bi-clipboard-check"></i> Qualité</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if nav == 'settings' %}active{% endif %}" href="/settings/custom-columns">
+            <i class="bi bi-sliders"></i> Colonnes</a>
+        </li>
+      </ul>
+      <div class="d-flex align-items-center gap-2">
+        <label class="visually-hidden" for="ref-user-input">Auteur</label>
+        <div class="input-group input-group-sm ref-user">
+          <span class="input-group-text" title="Auteur des modifications (non authentifié)"><i class="bi bi-person"></i></span>
+          <input id="ref-user-input" class="form-control" value="{{ '' if user == 'anonyme' else user }}"
+                 placeholder="Votre nom" maxlength="100">
+        </div>
+        <label class="visually-hidden" for="ref-release-select">Release</label>
+        <select id="ref-release-select" class="form-select form-select-sm ref-release-select">
+          {% for r in releases %}
+            <option value="{{ r.label }}" {% if current_release and r.release_id == current_release.release_id %}selected{% endif %}>
+              {{ r.label }} — {{ {'open': 'ouverte', 'frozen': 'figée', 'published': 'publiée', 'archived': 'archivée'}[r.status] }}
+            </option>
+          {% else %}
+            <option value="">Aucune release</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="{% block container_class %}container-fluid{% endblock %} py-3">
+  {% if notice %}
+    <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+      <i class="bi bi-check-circle"></i> {{ notice }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Fermer"></button>
+    </div>
+  {% endif %}
+  {% if error %}
+    <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+      <i class="bi bi-exclamation-triangle"></i> {{ error }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert" aria-label="Fermer"></button>
+    </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+<script src="/static/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/static/vendor/htmx/htmx.min.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

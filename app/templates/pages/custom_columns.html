@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% set nav = 'settings' %}
+{% block title %}Colonnes personnalisées — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<h1 class="h4">Colonnes personnalisées</h1>
+<p class="text-secondary small">Colonnes supplémentaires de <code>source_to_concept_map</code>, stockées dans <code>extra</code> (jsonb),
+  proposées à l'import et dans le formulaire de correction.</p>
+{% if form_error %}<div class="alert alert-danger py-2">{{ form_error }}</div>{% endif %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="table-responsive bg-white border rounded">
+    <table class="table table-sm mb-0 align-middle">
+      <thead class="table-light"><tr><th>Nom</th><th>Libellé</th><th>Type</th><th>Valeurs autorisées</th><th>Obligatoire</th><th class="text-end">Lignes</th><th></th></tr></thead>
+      <tbody>
+      {% for c in columns %}
+        <tr>
+          <td><code>{{ c.column_name }}</code></td>
+          <td>{{ c.label }}{% if c.description %}<div class="small text-secondary">{{ c.description }}</div>{% endif %}</td>
+          <td>{{ data_types[c.data_type] }}</td>
+          <td class="small">{{ (c.allowed_values or [])|join(', ') }}</td>
+          <td>{{ 'oui' if c.is_required else 'non' }}</td>
+          <td class="text-end">{{ usage.get(c.column_name, 0)|fmt_int }}</td>
+          <td>
+            <form hx-post="/settings/custom-columns" hx-confirm="Supprimer la déclaration de {{ c.column_name }} ? Les {{ usage.get(c.column_name, 0) }} valeurs déjà stockées dans extra sont conservées mais ne seront plus affichées.">
+              <input type="hidden" name="action" value="delete"><input type="hidden" name="column_name" value="{{ c.column_name }}">
+              <button class="btn btn-sm btn-link text-danger p-0" title="Supprimer"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-secondary py-3">Aucune colonne personnalisée.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card"><div class="card-header py-1">Nouvelle colonne</div><div class="card-body">
+      <form method="post" action="/settings/custom-columns">
+        <input type="hidden" name="action" value="create">
+        <div class="mb-2"><label class="form-label" for="ref-cc-name">Nom technique</label>
+          <input id="ref-cc-name" name="column_name" value="{{ values.column_name or '' }}" class="form-control form-control-sm {% if errors.column_name %}is-invalid{% endif %}" placeholder="ex. unite_source" required>
+          {% if errors.column_name %}<div class="invalid-feedback">{{ errors.column_name }}</div>{% endif %}</div>
+        <div class="mb-2"><label class="form-label" for="ref-cc-label">Libellé</label>
+          <input id="ref-cc-label" name="label" value="{{ values.label or '' }}" class="form-control form-control-sm {% if errors.label %}is-invalid{% endif %}" required>
+          {% if errors.label %}<div class="invalid-feedback">{{ errors.label }}</div>{% endif %}</div>
+        <div class="mb-2"><label class="form-label" for="ref-cc-type">Type</label>
+          <select id="ref-cc-type" name="data_type" class="form-select form-select-sm {% if errors.data_type %}is-invalid{% endif %}">
+            {% for key, label in data_types.items() %}<option value="{{ key }}" {% if key == values.data_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select></div>
+        <div class="mb-2"><label class="form-label" for="ref-cc-allowed">Valeurs autorisées (séparées par des virgules)</label>
+          <input id="ref-cc-allowed" name="allowed_values" value="{{ values.allowed_values or '' }}" class="form-control form-control-sm"></div>
+        <div class="mb-2"><label class="form-label" for="ref-cc-desc">Description</label>
+          <input id="ref-cc-desc" name="description" value="{{ values.description or '' }}" class="form-control form-control-sm"></div>
+        <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="is_required" id="ref-cc-req" {% if values.is_required %}checked{% endif %}>
+          <label class="form-check-label" for="ref-cc-req">Obligatoire à l'import</label></div>
+        <button class="btn btn-primary btn-sm">Créer</button>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

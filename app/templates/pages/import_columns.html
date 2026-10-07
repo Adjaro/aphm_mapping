@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% set nav = 'imports' %}
+{% set step = 2 %}
+{% set w = wizard %}
+{% block title %}Import n° {{ w.batch.import_batch_id }} — colonnes{% endblock %}
+{% block content %}
+<h1 class="h4">Import n° {{ w.batch.import_batch_id }} — {{ w.batch.file_name }}</h1>
+{% include "partials/_import_steps.html" %}
+
+{% if w.batch.status != 'pending' %}
+  <div class="alert alert-info py-2">Cet import est déjà traité. <a href="/imports/{{ w.batch.import_batch_id }}">Voir le rapport</a>.</div>
+{% endif %}
+{% if w.duplicate_batches %}
+  <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i>
+    Ce fichier (même SHA-256) a déjà été importé dans la release {{ w.release.label }} :
+    {% for id in w.duplicate_batches %}<a href="/imports/{{ id }}">import n° {{ id }}</a>{{ ', ' if not loop.last }}{% endfor %}.
+  </div>
+{% endif %}
+{% if w.prefilled_from %}
+  <div class="alert alert-info py-2">Correspondance pré-remplie depuis l'<a href="/imports/{{ w.prefilled_from }}">import n° {{ w.prefilled_from }}</a>
+    du même vocabulaire source.</div>
+{% endif %}
+{% if form_error %}<div class="alert alert-danger py-2">{{ form_error }}</div>{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header py-1 d-flex justify-content-between">
+    <span>Aperçu (20 premières lignes)</span>
+    <span class="small text-secondary">
+      {% if w.preview.encoding %}Encodage {{ w.preview.encoding }} · séparateur « {{ w.preview.separator }} » · {% endif %}
+      {{ w.preview.columns|length }} colonnes
+    </span>
+  </div>
+  {% if w.preview.sheets %}
+  <form method="get" class="px-3 pt-2 d-flex gap-2 align-items-center">
+    <label class="small" for="ref-sheet">Feuille</label>
+    <select id="ref-sheet" name="sheet" class="form-select form-select-sm" style="width: auto" data-ref-autosubmit>
+      {% for s in w.preview.sheets %}<option {% if s == w.preview.sheet_name %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </form>
+  {% endif %}
+  <div class="ref-preview">
+    <table class="table table-sm table-striped mb-0">
+      <thead class="table-light"><tr>{% for c in w.preview.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in w.preview.rows %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post" action="/imports/{{ w.batch.import_batch_id }}/columns">
+  <input type="hidden" name="sheet_name" value="{{ w.preview.sheet_name or '' }}">
+  <div class="card mb-3">
+    <div class="card-header py-1">Correspondance des colonnes de <code>source_to_concept_map</code></div>
+    <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead class="table-light"><tr><th>Colonne cible</th><th>Colonne du fichier</th><th></th><th>ou valeur par défaut (toute la colonne)</th></tr></thead>
+      <tbody>
+      {% macro choice_row(name, label, required) %}
+        {% set choice = w.choices.get(name, {}) %}
+        <tr>
+          <td><code>{{ name }}</code> <span class="text-secondary small">{{ label }}</span>{% if required %} <span class="text-danger">*</span>{% endif %}</td>
+          <td>
+            <select name="file__{{ name }}" id="ref-file-{{ name }}" data-ref-pair="ref-default-{{ name }}"
+                    class="form-select form-select-sm" aria-label="Colonne du fichier pour {{ name }}">
+              <option value="">—</option>
+              {% for c in w.preview.columns %}<option {% if c == choice.file_column %}selected{% endif %}>{{ c }}</option>{% endfor %}
+            </select>
+          </td>
+          <td class="text-secondary small text-center">ou</td>
+          <td><input name="default__{{ name }}" id="ref-default-{{ name }}" data-ref-pair="ref-file-{{ name }}"
+                     value="{{ choice.default_value or '' }}" class="form-control form-control-sm" aria-label="Valeur par défaut pour {{ name }}"></td>
+        </tr>
+      {% endmacro %}
+      {% for column in w.import_columns %}{{ choice_row(column.name, column.label, column.required) }}{% endfor %}
+      {% if w.custom_columns %}
+        <tr class="table-light"><th colspan="4">Colonnes personnalisées (stockées dans <code>extra</code>)</th></tr>
+        {% for column in w.custom_columns %}{{ choice_row(column.column_name, column.label ~ ' (' ~ column.data_type ~ ')', column.is_required) }}{% endfor %}
+      {% endif %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-1">Mode de chargement</div>
+    <div class="card-body py-2">
+      {% for mode, label in load_modes.items() %}
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="load_mode" id="ref-mode-{{ mode }}" value="{{ mode }}"
+                 {% if mode == w.batch.load_mode %}checked{% endif %}>
+          <label class="form-check-label" for="ref-mode-{{ mode }}"><code>{{ mode }}</code> — {{ label }}</label>
+        </div>
+      {% endfor %}
+      <div class="form-text">Les valeurs absentes prennent les valeurs par défaut du DDL (statut UNCHECKED, relation « Maps to »,
+        validité 1970-01-01 → 2099-12-31). <code>target_vocabulary_id</code> vide est déduit du concept cible.</div>
+    </div>
+  </div>
+  <button class="btn btn-primary" type="submit" {% if w.batch.status != 'pending' %}disabled{% endif %}>
+    <i class="bi bi-arrow-right"></i> Enregistrer et passer à la validation</button>
+</form>
+{% endblock %}

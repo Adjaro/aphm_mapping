@@ -1,0 +1,39 @@
+{# Cible HTMX : incluse dans #ref-search-body ; tableau de résultats #ref-results #}
+{% from "partials/_badges.html" import status_badge, quality_badge, target_label %}
+<div id="ref-results" class="table-responsive bg-white border rounded">
+  <table class="table table-sm table-hover mb-0 ref-results-table align-middle">
+    <thead class="table-light">
+      <tr>
+        {% for key, label in sort_labels.items() %}
+          {% set next_order = 'desc' if flt.sort == key and flt.order == 'asc' else 'asc' %}
+          {% set url = flt.url(sort=key, order=next_order, page=1) %}
+          <th scope="col">
+            <a href="{{ url }}" hx-get="{{ url }}" hx-target="#ref-search-body" hx-push-url="true">
+              {{ label }}
+              {% if flt.sort == key %}<i class="bi bi-caret-{{ 'up' if flt.order == 'asc' else 'down' }}-fill"></i>{% endif %}
+            </a>
+          </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in result.rows %}
+      <tr data-href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">
+        <td class="fw-semibold">
+          <a href="/mappings/{{ row.source_vocabulary_id|quote_path }}/{{ row.source_code|quote_path }}?release={{ flt.release }}">{{ row.source_code }}</a>
+        </td>
+        <td>{{ row.source_code_description or '' }}</td>
+        <td>{{ row.source_vocabulary_id }}</td>
+        <td>{{ row.domain_id or '' }}</td>
+        <td>{{ row.target_concept_id }}</td>
+        <td>{{ target_label(row.concept_name) }}{% if row.relationship_id != 'Maps to' %} <span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}</td>
+        <td>{{ row.target_vocabulary_id }}</td>
+        <td>{{ status_badge(row.mapping_status) }}</td>
+        <td>{{ quality_badge(row.quality_flag) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="text-center text-secondary py-4">Aucun mapping ne correspond aux filtres.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

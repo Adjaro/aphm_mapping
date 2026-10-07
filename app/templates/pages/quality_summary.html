@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "partials/_badges.html" import quality_badge %}
+{% set nav = 'quality' %}
+{% block title %}Qualité — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<h1 class="h4">Contrôle qualité des cibles — release {{ release.label }}</h1>
+<p class="text-secondary small">Drapeaux calculés par <code>mapping.v_mapping_quality</code> contre le vocabulaire chargé.
+  Cliquer un nombre pour ouvrir la recherche filtrée.</p>
+<div class="table-responsive bg-white border rounded">
+<table class="table table-sm table-hover mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th>Vocabulaire source</th>
+    {% for flag in flags %}<th class="text-end">{{ quality_badge(flag) }}</th>{% endfor %}
+    <th class="text-end">Total</th><th class="text-end">% OK</th>
+  </tr></thead>
+  <tbody>
+  {% for line in lines %}
+    {% set base = '/search-terms/terms?release=' ~ release.label ~ '&source_vocabulary=' ~ (line.source_vocabulary_id|urlencode) %}
+    <tr>
+      <td class="fw-semibold"><a href="{{ base }}">{{ line.source_vocabulary_id }}</a></td>
+      {% for flag in flags %}
+        <td class="text-end">{% if line.get(flag) %}<a href="{{ base }}&quality={{ flag }}">{{ line[flag]|fmt_int }}</a>{% else %}<span class="text-secondary">0</span>{% endif %}</td>
+      {% endfor %}
+      <td class="text-end">{{ line.total|fmt_int }}</td>
+      <td class="text-end">{{ (100 * line.get('OK', 0) / line.total)|round(1) if line.total else '—' }} %</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ flags|length + 3 }}" class="text-center text-secondary py-4">Aucun mapping dans cette release.</td></tr>
+  {% endfor %}
+  </tbody>
+  {% if lines %}
+  <tfoot class="table-light"><tr>
+    <th>Total</th>
+    {% for flag in flags %}<th class="text-end"><a href="/search-terms/terms?release={{ release.label }}&quality={{ flag }}">{{ totals[flag]|fmt_int }}</a></th>{% endfor %}
+    <th class="text-end">{{ totals.total|fmt_int }}</th>
+    <th class="text-end">{{ (100 * totals.get('OK', 0) / totals.total)|round(1) if totals.total else '—' }} %</th>
+  </tr></tfoot>
+  {% endif %}
+</table>
+</div>
+<dl class="row small mt-3 text-secondary">
+  <dt class="col-sm-3">UNMAPPED</dt><dd class="col-sm-9">target_concept_id = 0 (non mappé)</dd>
+  <dt class="col-sm-3">TARGET_NOT_FOUND</dt><dd class="col-sm-9">concept cible absent de vocab.concept</dd>
+  <dt class="col-sm-3">TARGET_INVALID</dt><dd class="col-sm-9">concept cible invalide (invalid_reason renseigné)</dd>
+  <dt class="col-sm-3">TARGET_NOT_STANDARD</dt><dd class="col-sm-9">concept cible non standard</dd>
+  <dt class="col-sm-3">VOCABULARY_MISMATCH</dt><dd class="col-sm-9">target_vocabulary_id différent du vocabulaire du concept</dd>
+  <dt class="col-sm-3">DOMAIN_MISMATCH</dt><dd class="col-sm-9">domain_id différent du domaine du concept</dd>
+</dl>
+{% endblock %}

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% from "partials/_badges.html" import status_badge, quality_badge, target_label %}
+{% set nav = 'search' %}
+{% block title %}{{ detail.source_code }} — {{ APP_NAME }}{% endblock %}
+{% block content %}
+{% set rows = detail.rows %}
+{% set first = rows[0] if rows else none %}
+<nav aria-label="Fil d'Ariane" class="small mb-2">
+  <a href="/search-terms/terms?release={{ detail.release.label }}&source_vocabulary={{ detail.source_vocabulary_id|urlencode }}">
+    <i class="bi bi-arrow-left"></i> {{ detail.source_vocabulary_id }}</a>
+</nav>
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1">{{ detail.source_code }}</h1>
+    <div class="text-secondary mb-2">{{ first.source_code_description if first and first.source_code_description else '' }}</div>
+    <span class="badge text-bg-secondary">{{ detail.source_vocabulary_id }}</span>
+    {% if first and first.domain_id %}<span class="badge text-bg-info">{{ first.domain_id }}</span>{% endif %}
+    {% for status in rows|map(attribute='mapping_status')|unique %}{{ status_badge(status) }} {% endfor %}
+    <span class="badge text-bg-light border">Release {{ detail.release.label }} ({{ detail.release.status }})</span>
+  </div>
+  {% if not detail.release.is_open %}
+    <div class="small text-secondary"><i class="bi bi-lock"></i> Release non modifiable (statut {{ detail.release.status }})</div>
+  {% endif %}
+</div>
+
+{% if not rows %}
+  <div class="alert alert-warning py-2">Ce code est absent de la release {{ detail.release.label }} (voir l'historique).</div>
+{% endif %}
+
+<div id="ref-edit-panel" class="mb-3"></div>
+
+<ul class="nav nav-tabs" role="tablist">
+  <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ref-tab-details" type="button" role="tab">Détails</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ref-tab-targets" type="button" role="tab">Cibles <span class="badge text-bg-secondary">{{ rows|length }}</span></button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ref-tab-history" type="button" role="tab">Historique</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#ref-tab-audit" type="button" role="tab">Audit <span class="badge text-bg-secondary">{{ detail.audit|length }}</span></button></li>
+</ul>
+
+<div class="tab-content bg-white border border-top-0 rounded-bottom p-3">
+  <div class="tab-pane fade show active" id="ref-tab-details" role="tabpanel">
+    <div class="row g-3">
+    {% for row in rows %}
+      <div class="col-xl-6">
+        <div class="card ref-detail-card">
+          <div class="card-header d-flex justify-content-between align-items-center py-1">
+            <span>{{ row.relationship_id }} → <strong>{{ row.target_concept_id }}</strong> {{ target_label(row.concept_name) }}</span>
+            {% if detail.release.is_open %}
+              <button class="btn btn-sm btn-outline-primary" hx-get="/mappings/{{ row.stcm_id }}/edit" hx-target="#ref-edit-panel">
+                <i class="bi bi-pencil"></i> Modifier</button>
+            {% endif %}
+          </div>
+          <div class="card-body py-2">
+            <dl class="row mb-0 small">
+              {% for key, label in [
+                ('source_code', 'source_code'), ('source_concept_id', 'source_concept_id'),
+                ('source_vocabulary_id', 'source_vocabulary_id'), ('source_code_description', 'source_code_description'),
+                ('target_concept_id', 'target_concept_id'), ('target_vocabulary_id', 'target_vocabulary_id'),
+                ('valid_start_date', 'valid_start_date'), ('valid_end_date', 'valid_end_date'),
+                ('invalid_reason', 'invalid_reason'), ('domain_id', 'Domaine'), ('relationship_id', 'Relation'),
+                ('source_frequency', 'Fréquence source'), ('mapping_status', 'Statut'), ('equivalence', 'Équivalence'),
+                ('mapping_comment', 'Commentaire'), ('mapped_by', 'Mappé par'), ('reviewed_by', 'Revu par'),
+                ('reviewed_at', 'Revu le'), ('import_batch_id', 'Import'), ('quality_flag', 'Qualité'),
+                ('created_at', 'Créé le'), ('updated_at', 'Modifié le')] %}
+                <dt class="col-5">{{ label }}</dt>
+                <dd class="col-7">
+                  {% if key == 'import_batch_id' and row[key] %}<a href="/imports/{{ row[key] }}">n° {{ row[key] }}</a>
+                  {% elif key == 'mapping_status' %}{{ status_badge(row[key]) }}
+                  {% elif key == 'quality_flag' %}{{ quality_badge(row[key]) }}
+                  {% else %}{{ row[key]|fmt_value }}{% endif %}
+                </dd>
+              {% endfor %}
+              {% for column in detail.custom_columns %}
+                <dt class="col-5">{{ column.label }}</dt>
+                <dd class="col-7">{{ (row.extra or {}).get(column.column_name)|fmt_value }}</dd>
+              {% endfor %}
+            </dl>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="ref-tab-targets" role="tabpanel">
+    <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light"><tr>
+        <th>Relation</th><th>ID cible</th><th>Libellé</th><th>Domaine</th><th>Vocabulaire</th><th>Classe</th>
+        <th>Standard</th><th>Validité</th><th>Qualité</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.relationship_id }}</td>
+          <td>{{ row.target_concept_id }}</td>
+          <td>{{ target_label(row.concept_name) }}</td>
+          <td>{{ row.target_domain_id or '' }}</td>
+          <td>{{ row.concept_vocabulary_id or row.target_vocabulary_id }}</td>
+          <td>{{ row.concept_class_id or '' }}</td>
+          <td>{{ {'S': 'Standard', 'C': 'Classification'}.get(row.standard_concept, 'Non standard') if row.concept_name else '' }}</td>
+          <td>{% if row.concept_name %}{{ 'Valide' if not row.concept_invalid_reason else 'Invalide (' ~ row.concept_invalid_reason ~ ')' }}{% endif %}</td>
+          <td>{{ quality_badge(row.quality_flag) }}</td>
+          <td>{% if detail.release.is_open %}
+            <button class="btn btn-sm btn-link p-0" hx-get="/mappings/{{ row.stcm_id }}/edit" hx-target="#ref-edit-panel" title="Modifier"><i class="bi bi-pencil"></i></button>
+          {% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="ref-tab-history" role="tabpanel">
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered ref-history mb-0">
+      <thead class="table-light"><tr>
+        <th></th>
+        {% for column in detail.history %}<th>{{ column.label }} <span class="small text-secondary">({{ column.status }})</span></th>{% endfor %}
+      </tr></thead>
+      <tbody>
+        <tr><th class="table-light">Présent</th>
+          {% for column in detail.history %}<td>{{ 'oui' if column.present else 'non' }}</td>{% endfor %}</tr>
+        {% for name, label in detail.history_fields %}
+        <tr><th class="table-light">{{ label }}</th>
+          {% for column in detail.history %}
+            <td class="{{ 'ref-changed' if name in column.changed }}" {% if name in column.changed %}title="Modifié par rapport à la release précédente"{% endif %}>
+              {{ column.values.get(name) or '' }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="small text-secondary mt-1"><span class="ref-changed px-1" style="background: var(--ref-changed-bg)">Surligné</span> : valeur différente de la release précédente.</div>
+  </div>
+
+  <div class="tab-pane fade" id="ref-tab-audit" role="tabpanel">
+    {% for entry in detail.audit %}
+      <div class="border rounded p-2 mb-2">
+        <div class="small mb-1">
+          <span class="badge {{ 'text-bg-warning' if entry.operation == 'UPDATE' else 'text-bg-danger' }}">{{ entry.operation }}</span>
+          <strong>{{ entry.changed_by }}</strong> — {{ entry.changed_at|fmt_dt }} — release {{ entry.release_label or '?' }}
+          — cible {{ entry.target_concept_id }}
+        </div>
+        <table class="table table-sm mb-0 ref-audit-changes">
+          <thead><tr><th>Champ</th><th>Avant</th><th>Après</th></tr></thead>
+          <tbody>
+          {% for field, before, after in entry.changes %}
+            <tr><td>{{ field }}</td><td>{{ before|fmt_value }}</td><td>{{ after|fmt_value if entry.operation == 'UPDATE' else '(supprimé)' }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-secondary">Aucune modification enregistrée pour ce code.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

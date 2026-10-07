@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% set nav = 'imports' %}
+{% block title %}Imports — {{ APP_NAME }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4 mb-0">Imports</h1>
+  <a class="btn btn-primary btn-sm" href="/imports/new"><i class="bi bi-upload"></i> Nouvel import</a>
+</div>
+<div class="table-responsive bg-white border rounded">
+<table class="table table-sm table-hover mb-0 align-middle">
+  <thead class="table-light"><tr>
+    <th>N°</th><th>Fichier</th><th>Release</th><th>Vocab. source</th><th>Mode</th><th>Statut</th>
+    <th class="text-end">Lues</th><th class="text-end">Chargées</th><th class="text-end">Rejetées</th><th>Auteur</th><th>Date</th>
+  </tr></thead>
+  <tbody>
+  {% for b in batches %}
+    {% set href = '/imports/' ~ b.import_batch_id ~ ('/columns' if b.status == 'pending' else '') %}
+    <tr data-href="{{ href }}">
+      <td><a href="{{ href }}">{{ b.import_batch_id }}</a></td>
+      <td>{{ b.file_name }}</td>
+      <td>{{ b.release_label }}</td>
+      <td>{{ b.source_vocabulary_id or '' }}</td>
+      <td>{{ b.load_mode }}</td>
+      <td>{% include "partials/_import_status.html" %}</td>
+      <td class="text-end">{{ b.rows_read|fmt_int }}</td>
+      <td class="text-end">{{ b.rows_loaded|fmt_int }}</td>
+      <td class="text-end">{{ b.rows_rejected|fmt_int }}</td>
+      <td>{{ b.created_by or '' }}</td>
+      <td>{{ b.created_at|fmt_dt }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="11" class="text-center text-secondary py-4">Aucun import.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{# Cible HTMX : #ref-concept-results (résultats du sélecteur de concept cible) #}
+{% for c in concepts %}
+  <button type="button" class="list-group-item list-group-item-action ref-concept-option py-1"
+          data-concept-id="{{ c.concept_id }}" data-label="{{ c.concept_name }} ({{ c.vocabulary_id }})">
+    <strong>{{ c.concept_id }}</strong> {{ c.concept_name }}
+    <span class="text-secondary">— {{ c.domain_id }} · {{ c.vocabulary_id }} · {{ c.concept_class_id }} · {{ c.concept_code }}</span>
+    {% if c.standard_concept != 'S' %}<span class="badge text-bg-warning">non standard</span>{% endif %}
+    {% if c.invalid_reason %}<span class="badge text-bg-danger">invalide</span>{% endif %}
+  </button>
+{% else %}
+  {% if q|length >= 2 %}<div class="text-secondary p-1">Aucun concept trouvé.</div>{% endif %}
+{% endfor %}

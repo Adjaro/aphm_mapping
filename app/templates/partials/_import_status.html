@@ -1,0 +1,6 @@
+{# Badge de statut d'un lot d'import (variable b) ; pas de cible HTMX #}
+{% set colors = {'pending': 'text-bg-secondary', 'loaded': 'text-bg-success', 'partial': 'text-bg-warning',
+                 'failed': 'text-bg-danger', 'rolled_back': 'text-bg-dark'} %}
+{% set labels = {'pending': 'en attente', 'loaded': 'chargé', 'partial': 'partiel', 'failed': 'échec',
+                 'rolled_back': 'annulé'} %}
+<span class="badge {{ colors.get(b.status, 'text-bg-light') }}">{{ labels.get(b.status, b.status) }}</span>
