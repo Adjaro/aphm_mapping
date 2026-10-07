@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.db import SessionLocal, libpq_dsn  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import search_service  # noqa: E402
+from app.services import compare_service, search_service  # noqa: E402
 from scripts.migrate import migrate  # noqa: E402
 
 RESET_SQL = """
@@ -86,6 +86,7 @@ def clean_data(test_database: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
         conn.execute(TRUNCATE_SQL)
     monkeypatch.setattr(get_settings(), "upload_dir", tmp_path / "uploads")
     search_service.clear_search_cache()  # les identifiants de release sont réutilisés d'un test à l'autre
+    compare_service.clear_compare_cache()
     yield
 
 

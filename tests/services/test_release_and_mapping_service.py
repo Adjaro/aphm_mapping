@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from app.schemas.compare import CompareFilter
 from app.schemas.custom_column import CustomColumnIn
 from app.schemas.mapping import MappingEditIn
 from app.services import (
@@ -128,3 +129,47 @@ def test_compare_defaults_skip_archived_staging(session: Session) -> None:
     assert compare_service.default_labels(session) == ("v1.0", "v1.1")
     release_service.promote(session, "v1.1", "v2.0", "x")
     assert compare_service.default_labels(session) == ("v1.0", "v2.0")
+
+
+def test_compare_line_metrics_and_origins(session: Session) -> None:
+    _cycle(session)  # v1.0 publiée (GLU), staging v1.1
+    add_mapping(session, "v1.1", "NEW", 1002)  # ajout manuel
+    sql(
+        session,
+        "UPDATE mapping.source_to_concept_map s SET mapping_comment = 'revu' FROM mapping.release r "
+        "WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'GLU'",
+    )
+    result = compare_service.compare(session, CompareFilter(from_label="v1.0", to_label="v1.1"))
+    lines = result.lines
+    assert lines is not None
+    assert (lines.added, lines.modified, lines.removed, lines.unchanged) == (1, 1, 0, 0)
+    assert (lines.size_from, lines.size_to, lines.net) == (1, 2, 1)
+    assert lines.fields == [("mapping_comment", 1)]
+    assert lines.to_review == {"UNCHECKED": 1}
+    assert [(o["import_batch_id"], o["n_added"], o["n_modified"]) for o in lines.origins] == [(None, 1, 1)]
+    assert (
+        compare_service.compare(session, CompareFilter(from_label="v1.0", to_label="v1.1")) is result
+    )  # cache
+
+
+def test_compare_origin_attributes_lines_to_import(session: Session) -> None:
+    import io
+
+    from app.schemas.imports import ColumnMappingIn
+    from app.services import import_service
+
+    _cycle(session)
+    content = b"code;concept\nGLU;1001\nNEW;1002\n"
+    batch_id = import_service.create_batch(session, io.BytesIO(content), "f.csv", None, "x")
+    choices = {
+        "source_code": {"file_column": "code"},
+        "target_concept_id": {"file_column": "concept"},
+        "source_vocabulary_id": {"default_value": "TEST"},
+        "mapping_comment": {"default_value": "importé"},
+    }
+    import_service.save_mapping(session, batch_id, ColumnMappingIn.model_validate({"choices": choices}))
+    import_service.run_import(session, batch_id, "x")
+    lines = compare_service.compare(session, CompareFilter(from_label="v1.0", to_label="v1.1")).lines
+    assert lines is not None
+    origins = [(o["import_batch_id"], o["n_added"], o["n_modified"]) for o in lines.origins]
+    assert origins == [(batch_id, 1, 1)]

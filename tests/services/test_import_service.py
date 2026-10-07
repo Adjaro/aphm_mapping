@@ -312,3 +312,28 @@ def test_delete_pending_batch(session: Session) -> None:
     loaded = _import(session, HEADER + "HB;Hb;1002;\n")
     with pytest.raises(BusinessError, match="Annuler"):
         import_service.delete_batch(session, loaded)
+
+
+def test_usagi_concept_dates_are_not_prefilled() -> None:
+    columns = [
+        "sourceCode",
+        "sourceName",
+        "conceptId",
+        "valid_start_date",
+        "valid_end_date",
+        "invalid_reason",
+    ]
+    targets = [
+        ("source_code", ("sourcecode",)),
+        ("valid_start_date", ()),
+        ("valid_end_date", ()),
+        ("invalid_reason", ()),
+    ]
+    choices = import_service.suggest_choices(columns, targets, None)
+    assert choices["source_code"]["file_column"] == "sourceCode"
+    assert all(
+        choices[t]["file_column"] is None for t in ("valid_start_date", "valid_end_date", "invalid_reason")
+    )
+    # fichier non Usagi : correspondance par nom conservée
+    plain = import_service.suggest_choices(["code", "valid_start_date"], targets, None)
+    assert plain["valid_start_date"]["file_column"] == "valid_start_date"

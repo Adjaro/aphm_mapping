@@ -1,7 +1,9 @@
 """Onglet « Comparer » : tableau de bord et liste par code entre deux releases."""
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any
 
 from sqlalchemy import RowMapping
@@ -26,6 +28,37 @@ class CompareOut:
     total: int
     pages: int
     kinds: dict[str, str] = field(default_factory=lambda: dict(CHANGE_KIND_LABELS))
+    lines: "LineMetricsOut | None" = None
+
+
+@dataclass
+class LineMetricsOut:
+    """Métriques au niveau des lignes (mappings) entre les deux versions."""
+
+    added: int
+    modified: int
+    removed: int
+    unchanged: int
+    size_from: int
+    size_to: int
+    by_vocabulary: list[dict[str, Any]]
+    by_domain: list[dict[str, Any]]
+    fields: list[tuple[str, int]]
+    to_review: dict[str, int]
+    origins: Sequence[RowMapping]
+
+    @property
+    def changed(self) -> int:
+        return self.added + self.modified + self.removed
+
+    @property
+    def change_rate(self) -> float:
+        base = max(self.size_from, self.size_to, 1)
+        return 100 * (self.added + self.modified + self.removed) / base
+
+    @property
+    def net(self) -> int:
+        return self.size_to - self.size_from
 
 
 def default_labels(session: Session) -> tuple[str, str]:
@@ -54,9 +87,42 @@ def default_labels(session: Session) -> tuple[str, str]:
         return (parent.label if parent else releases[1].label), latest.label
 
 
+# Cache : une comparaison ne change pas tant que les deux releases ne changent pas
+COMPARE_CACHE_SIZE = 64
+_compare_cache: OrderedDict[tuple[str, str, str, str, str], CompareOut] = OrderedDict()
+_cache_lock = Lock()
+
+
+def clear_compare_cache() -> None:
+    with _cache_lock:
+        _compare_cache.clear()
+
+
 def compare(session: Session, flt: CompareFilter) -> CompareOut:
     if flt.from_label == flt.to_label:
         raise BusinessError("Choisir deux releases différentes.")
+    with session.begin():
+        key = (
+            flt.from_label,
+            flt.to_label,
+            compare_repo.data_version(session, flt.from_label),
+            compare_repo.data_version(session, flt.to_label),
+            flt.model_dump_json(),
+        )
+    with _cache_lock:
+        cached = _compare_cache.get(key)
+        if cached is not None:
+            _compare_cache.move_to_end(key)
+            return cached
+    result = _compare(session, flt)
+    with _cache_lock:
+        _compare_cache[key] = result
+        while len(_compare_cache) > COMPARE_CACHE_SIZE:
+            _compare_cache.popitem(last=False)
+    return result
+
+
+def _compare(session: Session, flt: CompareFilter) -> CompareOut:
     with session.begin():
         for label in (flt.from_label, flt.to_label):
             if release_repo.get_by_label(session, label) is None:
@@ -67,6 +133,9 @@ def compare(session: Session, flt: CompareFilter) -> CompareOut:
         transitions = compare_repo.status_transitions(session)
         facet_rows = compare_repo.facets(session, flt)
         rows = compare_repo.rows(session, flt, PAGE_SIZE, (flt.page - 1) * PAGE_SIZE)
+        compare_repo.materialize_lines(session, flt.from_label, flt.to_label)
+        stats = compare_repo.line_stats(session)
+        origins = compare_repo.line_origins(session, flt.from_label, flt.to_label)
     total = int(rows[0]["total"]) if rows else 0
     kind_totals, matrix = _matrix(matrix_rows)
     facets = _facets(flt, facet_rows)
@@ -82,6 +151,53 @@ def compare(session: Session, flt: CompareFilter) -> CompareOut:
         rows=rows,
         total=total,
         pages=max(1, -(-total // PAGE_SIZE)),
+        lines=_line_metrics(stats, origins, sizes, flt),
+    )
+
+
+def _line_metrics(
+    stats: Sequence[RowMapping],
+    origins: Sequence[RowMapping],
+    sizes: dict[str, RowMapping],
+    flt: CompareFilter,
+) -> LineMetricsOut:
+    totals = {"ADDED": 0, "MODIFIED": 0, "REMOVED": 0}
+    by_vocabulary: dict[str, dict[str, Any]] = {}
+    by_domain: dict[str, dict[str, Any]] = {}
+    fields: list[tuple[str, int]] = []
+    to_review: dict[str, int] = {}
+    for row in stats:
+        n = int(row["n"])
+        if row["metric"] == "total":
+            totals[row["key"]] = n
+        elif row["metric"] in ("vocabulary", "domain"):
+            target = by_vocabulary if row["metric"] == "vocabulary" else by_domain
+            line = target.setdefault(row["key"], {"key": row["key"], "ADDED": 0, "MODIFIED": 0, "REMOVED": 0})
+            line[row["change_type"]] += n
+        elif row["metric"] == "field":
+            fields.append((row["key"], n))
+        elif row["metric"] == "review":
+            to_review[row["key"]] = to_review.get(row["key"], 0) + n
+    size_from = int(sizes[flt.from_label]["n_mappings"]) if flt.from_label in sizes else 0
+    size_to = int(sizes[flt.to_label]["n_mappings"]) if flt.to_label in sizes else 0
+
+    def ordered(lines: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        for line in lines.values():
+            line["total"] = line["ADDED"] + line["MODIFIED"] + line["REMOVED"]
+        return sorted(lines.values(), key=lambda line: -int(line["total"]))
+
+    return LineMetricsOut(
+        added=totals["ADDED"],
+        modified=totals["MODIFIED"],
+        removed=totals["REMOVED"],
+        unchanged=max(size_to - totals["ADDED"] - totals["MODIFIED"], 0),
+        size_from=size_from,
+        size_to=size_to,
+        by_vocabulary=ordered(by_vocabulary),
+        by_domain=ordered(by_domain),
+        fields=sorted(fields, key=lambda item: -item[1]),
+        to_review=to_review,
+        origins=origins,
     )
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import CustomColumn, Release
 from app.repositories import audit_repo, custom_column_repo, stcm_repo, vocab_repo
+from app.schemas.compare import CompareFilter
 from app.schemas.search import (
     COLLAPSED_FACETS,
     FACET_LABELS,
@@ -22,7 +23,7 @@ from app.schemas.search import (
     SearchFilter,
     facet_value_label,
 )
-from app.services import release_service
+from app.services import compare_service, release_service
 
 # Champs comparés d'une release à l'autre dans l'onglet Historique
 HISTORY_FIELDS: tuple[tuple[str, str], ...] = (
@@ -180,6 +181,9 @@ def warm_up(session: Session) -> None:
     if release is not None:
         search(session, release, SearchFilter(release=release.label))
         key_figures(session, release)
+    from_label, to_label = compare_service.default_labels(session)
+    if from_label and to_label:
+        compare_service.compare(session, CompareFilter(from_label=from_label, to_label=to_label))
 
 
 def _build_facets(flt: SearchFilter, counts: dict[str, list[tuple[str | None, int]]]) -> list[FacetOut]:

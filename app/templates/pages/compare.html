@@ -52,7 +52,92 @@
 </div>
 {% elif result %}
 {% set r = result %}
-{# --- Tableau de bord --- #}
+{# --- Tableau de bord : lignes (mappings) --- #}
+{% set l = r.lines %}
+<h2 class="h6 text-secondary text-uppercase small mb-2">Lignes (mappings) entre {{ flt.from_label }} et {{ flt.to_label }}</h2>
+<div class="row g-2 mb-3 text-center">
+  {% for value, label, color, kind, help in [
+      (l.added, 'lignes ajoutées', 'text-success', ['NEW_CODE', 'TARGET_CHANGED'], 'Mappings présents dans ' ~ flt.to_label ~ ' mais pas dans ' ~ flt.from_label),
+      (l.modified, 'lignes modifiées', 'text-warning', ['MODIFIED'], 'Même code et même cible, au moins un autre champ différent'),
+      (l.removed, 'lignes supprimées', 'text-danger', ['REMOVED_CODE', 'TARGET_CHANGED'], 'Mappings de ' ~ flt.from_label ~ ' absents de ' ~ flt.to_label),
+      (l.unchanged, 'lignes inchangées', 'text-secondary', [], 'Mappings identiques dans les deux versions'),
+  ] %}
+    <div class="col-6 col-lg">
+      {% if kind %}<a class="text-decoration-none" href="{{ flt.url(change_kind=kind, page=1) }}">{% endif %}
+      <div class="card h-100" title="{{ help }}"><div class="card-body py-2">
+        <div class="ref-figure {{ color }}">{{ '+' if label == 'lignes ajoutées' and value }}{{ '−' if label == 'lignes supprimées' and value }}{{ value|fmt_int }}</div>
+        <div class="small text-body">{{ label }}</div>
+      </div></div>
+      {% if kind %}</a>{% endif %}
+    </div>
+  {% endfor %}
+  <div class="col-6 col-lg"><div class="card h-100" title="(ajoutées + modifiées + supprimées) / taille de la plus grande version"><div class="card-body py-2">
+    <div class="ref-figure">{{ l.change_rate|round(2) }} %</div>
+    <div class="small text-body">taux de changement</div>
+  </div></div></div>
+  <div class="col-6 col-lg"><div class="card h-100"><div class="card-body py-2">
+    <div class="ref-figure {{ 'text-success' if l.net > 0 else ('text-danger' if l.net < 0 else '') }}">{{ '+' if l.net > 0 }}{{ l.net|fmt_int }}</div>
+    <div class="small text-body">solde ({{ l.size_from|fmt_int }} → {{ l.size_to|fmt_int }})</div>
+  </div></div></div>
+</div>
+
+{% if l.to_review %}
+<div class="alert alert-info py-2 small">
+  <i class="bi bi-hourglass-split"></i> Parmi les lignes ajoutées ou modifiées, à traiter dans {{ flt.to_label }} :
+  {% for status, n in l.to_review.items() %}
+    <a href="/search-terms/terms?release={{ flt.to_label }}&mapping_status={{ status }}"><span class="ref-status ref-status-{{ status }}">{{ status }}</span> {{ n|fmt_int }}</a>{{ ' · ' if not loop.last }}
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-5">
+    <div class="card h-100"><div class="card-header py-1">Lignes par vocabulaire source</div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Vocabulaire</th><th class="text-end text-success">Ajoutées</th><th class="text-end text-warning">Modifiées</th>
+        <th class="text-end text-danger">Supprimées</th><th class="text-end">Total</th></tr></thead>
+      <tbody>
+      {% for line in l.by_vocabulary %}
+        <tr><td><a href="{{ flt.url(source_vocabulary=[line.key], page=1) }}">{{ line.key }}</a></td>
+          <td class="text-end">{{ line.ADDED|fmt_int }}</td><td class="text-end">{{ line.MODIFIED|fmt_int }}</td>
+          <td class="text-end">{{ line.REMOVED|fmt_int }}</td><td class="text-end fw-semibold">{{ line.total|fmt_int }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card h-100"><div class="card-header py-1">Origine des changements</div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Source</th><th class="text-end">+</th><th class="text-end">~</th><th class="text-end">−</th></tr></thead>
+      <tbody>
+      {% for o in l.origins %}
+        <tr>
+          <td class="small">
+            {% if o.import_batch_id %}<a href="/imports/{{ o.import_batch_id }}"><i class="bi bi-upload"></i> Import n° {{ o.import_batch_id }}</a>
+              <span class="text-secondary">{{ o.file_name }}{% if o.created_by %} · {{ o.created_by|user_label }}{% endif %}{% if o.loaded_at %} · {{ o.loaded_at|fmt_dt }}{% endif %}</span>
+              {% if o.status == 'rolled_back' %}<span class="badge text-bg-dark">annulé</span>{% endif %}
+            {% elif o.n_removed %}<i class="bi bi-trash"></i> Suppressions (import en remplacement ou correction)
+            {% else %}<i class="bi bi-pencil"></i> Corrections manuelles{% endif %}
+          </td>
+          <td class="text-end">{{ o.n_added|fmt_int }}</td><td class="text-end">{{ o.n_modified|fmt_int }}</td><td class="text-end">{{ o.n_removed|fmt_int }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div></div>
+  </div>
+  <div class="col-xl-3">
+    <div class="card h-100"><div class="card-header py-1">Lignes par domaine</div>
+    <table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Domaine</th><th class="text-end">+</th><th class="text-end">~</th><th class="text-end">−</th></tr></thead>
+      {% for line in l.by_domain[:10] %}
+        <tr><td>{{ line.key }}</td><td class="text-end">{{ line.ADDED|fmt_int }}</td><td class="text-end">{{ line.MODIFIED|fmt_int }}</td><td class="text-end">{{ line.REMOVED|fmt_int }}</td></tr>
+      {% endfor %}
+    </table></div>
+  </div>
+</div>
+
+{# --- Tableau de bord : codes source --- #}
+<h2 class="h6 text-secondary text-uppercase small mb-2">Codes source</h2>
 <div class="row g-2 mb-3 text-center">
   {% for label in [flt.from_label, flt.to_label] %}
     {% set size = r.sizes.get(label) %}
@@ -86,10 +171,12 @@
     </table></div></div>
   </div>
   <div class="col-md-6 col-xl-3">
-    <div class="card h-100"><div class="card-header py-1">Champs modifiés (codes)</div>
+    <div class="card h-100"><div class="card-header py-1">Champs modifiés (codes · lignes)</div>
     <table class="table table-sm mb-0">
       {% for name, count in r.field_totals[:12] %}
-        <tr><td><a href="{{ flt.url(field=[name], page=1) }}"><code>{{ name }}</code></a></td><td class="text-end">{{ count|fmt_int }}</td></tr>
+        {% set line_count = (r.lines.fields|selectattr(0, 'equalto', name)|map(attribute=1)|first) if r.lines else none %}
+        <tr><td><a href="{{ flt.url(field=[name], page=1) }}"><code>{{ name }}</code></a></td>
+          <td class="text-end">{{ count|fmt_int }}{% if line_count %} <span class="text-secondary small">· {{ line_count|fmt_int }} l.</span>{% endif %}</td></tr>
       {% else %}<tr><td class="text-secondary">—</td></tr>{% endfor %}
     </table></div>
   </div>
@@ -111,6 +198,7 @@
   <section class="col-lg-9">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <div><strong>{{ r.total|fmt_int }}</strong> code{{ 's' if r.total > 1 }} modifié{{ 's' if r.total > 1 }}
+        <span class="small text-secondary">(seuls les codes ajoutés, supprimés ou modifiés sont listés)</span>
         {% if flt.change_kind or flt.source_vocabulary or flt.field or flt.query %}
           — <a href="{{ flt.url(change_kind=[], source_vocabulary=[], field=[], query='', page=1) }}">tout effacer</a>{% endif %}</div>
       <a class="btn btn-sm btn-outline-secondary" href="{{ flt.url('/compare/export.csv', page=None) }}"><i class="bi bi-download"></i> Exporter CSV</a>

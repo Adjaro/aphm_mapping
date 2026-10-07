@@ -38,6 +38,7 @@ from app.services.errors import BusinessError, database_message
 logger = logging.getLogger(__name__)
 
 ERRORS_PAGE_SIZE = 100
+USAGI_CONCEPT_COLUMNS = {"valid_start_date", "valid_end_date", "invalid_reason"}
 REQUIRED_COLUMNS = tuple(column.name for column in IMPORT_COLUMNS if column.required)
 ALLOWED_DEFAULTS: dict[str, tuple[str, ...]] = {
     "mapping_status": MAPPING_STATUSES,
@@ -281,8 +282,14 @@ def suggest_choices(
 ) -> dict[str, dict[str, str | None]]:
     """Pré-remplissage : dernier import du même vocabulaire, puis correspondance par nom / alias."""
     by_name = {normalize_name(c): c for c in file_columns}
+    # Export Usagi : valid_start_date / valid_end_date / invalid_reason y décrivent le CONCEPT cible,
+    # pas le mapping ; ne pas les associer automatiquement.
+    usagi = {"sourcecode", "conceptid"} <= set(by_name)
     choices: dict[str, dict[str, str | None]] = {}
     for target, aliases in targets:
+        if usagi and target in USAGI_CONCEPT_COLUMNS and previous is None:
+            choices[target] = {"file_column": None, "default_value": None}
+            continue
         file_column: str | None = None
         default_value: str | None = None
         if previous is not None:

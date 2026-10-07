@@ -29,8 +29,10 @@ locaux AP-HM vers les concepts standards OMOP), alimentée par des fichiers CSV/
 - Contrôle qualité des cibles et exports CSV (résultats de recherche, diff, release au format CDM).
 - Onglet « Export » : properties (un fichier par domaine, `code=cible[,cible…]`), CSV CDM, CSV complet ;
   téléchargement ou écriture dans `data/30_properties` ; même export en ligne de commande et par l'API.
-- Onglet « Comparer » : différences entre deux releases au niveau du code source (tableau de bord,
-  transitions de statut, liste à facettes, export).
+- Onglet « Comparer » : différences entre deux releases — métriques ligne à ligne (ajoutées, modifiées,
+  supprimées, inchangées, taux de changement, solde, par vocabulaire et par domaine, origine : import ou
+  correction manuelle, lignes à relire), puis vue par code source (transitions de statut, liste à facettes,
+  export). Seules les lignes / codes qui ont changé sont listés.
 - Onglet « Athena » : comparaison de nos mappings aux relations natives « Maps to » / « Maps to value »
   d'une base Athena enregistrée (connexion stockée, copie locale synchronisée à la demande).
   Ce n'est pas un navigateur de vocabulaire : seules les relations « Maps to » sont lues.
