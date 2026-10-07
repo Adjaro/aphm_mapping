@@ -127,7 +127,36 @@ def report_page(request: Request, session: SessionDep, batch_id: int, page: int 
         report = import_service.report(session, batch_id, page)
     except BusinessError as exc:
         return not_found(request, session, exc.message)
-    return render(request, session, "pages/import_report.html", {"report": report}, report.release)
+    context = {
+        "report": report,
+        "state": import_service.batch_state(report.batch, report.release),
+        "can_rollback": import_service.can_rollback(report.batch, report.release),
+        "can_delete": import_service.can_delete(report.batch),
+    }
+    return render(request, session, "pages/import_report.html", context, report.release)
+
+
+@router.post("/{batch_id:int}/rollback")
+def rollback(request: Request, session: SessionDep, batch_id: int) -> Response:
+    try:
+        result = import_service.rollback(session, batch_id, current_user(request))
+    except BusinessError as exc:
+        return redirect(request, f"/imports/{batch_id}", error=exc.message)
+    notice = (
+        f"Import n° {batch_id} annulé : {result.deleted} ligne(s) ajoutée(s) retirée(s), "
+        f"{result.restored} ligne(s) modifiée(s) restaurée(s), "
+        f"{result.reinserted} ligne(s) supprimée(s) remise(s)."
+    )
+    return redirect(request, f"/imports/{batch_id}", notice=notice)
+
+
+@router.post("/{batch_id:int}/delete")
+def delete(request: Request, session: SessionDep, batch_id: int) -> Response:
+    try:
+        file_name = import_service.delete_batch(session, batch_id)
+    except BusinessError as exc:
+        return redirect(request, "/imports", error=exc.message)
+    return redirect(request, "/imports", notice=f"Import n° {batch_id} ({file_name}) supprimé.")
 
 
 @router.get("/{batch_id:int}/errors.csv")

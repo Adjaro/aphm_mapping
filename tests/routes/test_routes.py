@@ -110,7 +110,8 @@ def test_edit_mapping_through_form(client: TestClient, session: Session) -> None
     )
     assert response.status_code == 204
     assert response.headers["HX-Redirect"].startswith("/mappings/LABO/GLU?release=v1.1")
-    assert sql(session, "SELECT changed_by FROM mapping.audit_log") == [("claire",)]
+    claire = sql(session, "SELECT changed_by FROM mapping.audit_log WHERE changed_by = 'claire'")
+    assert claire == [("claire",)]
 
 
 def test_release_actions(client: TestClient, session: Session) -> None:
@@ -201,7 +202,7 @@ def test_compare_and_athena_pages(client: TestClient, session: Session) -> None:
     sql(
         session,
         """
-        UPDATE mapping.source_to_concept_map s SET mapping_status = 'APPROVED'
+        UPDATE mapping.source_to_concept_map s SET mapping_status = 'FLAGGED'
           FROM mapping.release r
          WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'GLU'
         """,
@@ -338,3 +339,52 @@ def test_suggest_route_and_highlight(client: TestClient, session: Session) -> No
     page = client.get("/search-terms/terms?release=v1.0&query=glu", headers=HX)
     assert "<mark>GLU</mark>" in page.text and "triés par pertinence" in page.text
     assert "Qualité" not in page.text  # rubrique masquée par défaut
+
+
+def test_import_rollback_and_archive_routes(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    content = "code;libelle;concept\nHB;Hémoglobine;1002\n".encode()
+    upload = client.post(
+        "/imports/new",
+        files={"file": ("labo.csv", content, "text/csv")},
+        data={"source_vocabulary_id": "LABO"},
+        follow_redirects=False,
+    )
+    batch_id = int(re.findall(r"\d+", upload.headers["location"])[0])
+    pending_list = client.get("/imports")
+    assert f"/imports/{batch_id}/delete" in pending_list.text  # import en attente : supprimable
+    client.post(
+        f"/imports/{batch_id}/columns",
+        data={
+            "file__source_code": "code",
+            "file__target_concept_id": "concept",
+            "default__source_vocabulary_id": "LABO",
+        },
+    )
+    client.post(f"/imports/{batch_id}/validate", headers=HX)
+    report = client.get(f"/imports/{batch_id}")
+    assert "Annuler l'import" in report.text and "1 ligne(s) ajoutée(s)" in report.text.replace(" ", "")
+    undone = client.post(f"/imports/{batch_id}/rollback", headers=HX)
+    assert "notice=" in undone.headers["HX-Redirect"]
+    assert sql(session, "SELECT count(*) FROM mapping.source_to_concept_map WHERE source_code = 'HB'") == [
+        (0,)
+    ]
+    assert "annulé" in client.get("/imports").text
+    # Après promotion de la staging, les imports chargés dans v1.1 sont archivés
+    second = client.post(
+        "/imports/new", files={"file": ("labo2.csv", content, "text/csv")}, follow_redirects=False
+    ).headers["location"]
+    second_id = int(re.findall(r"\d+", second)[0])
+    client.post(
+        f"/imports/{second_id}/columns",
+        data={
+            "file__source_code": "code",
+            "file__target_concept_id": "concept",
+            "default__source_vocabulary_id": "LABO",
+        },
+    )
+    client.post(f"/imports/{second_id}/validate", headers=HX)
+    release_service.promote(session, "v1.1", "v2.0", "x")
+    assert "archivé" in client.get(f"/imports/{second_id}").text
+    refused = client.post(f"/imports/{second_id}/rollback", follow_redirects=False)
+    assert "error=" in refused.headers["location"]

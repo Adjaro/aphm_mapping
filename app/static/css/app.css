@@ -119,3 +119,6 @@ body { background: #f8f9fa; }
 .ref-suggest-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-suggest-footer { border-top: 1px solid var(--bs-border-color); padding: .3rem .75rem 0; margin-top: .25rem; }
 mark { padding: 0 .1em; background: #fff3a3; border-radius: .15rem; }
+
+/* Statut validé : discret (seuls les mappings à traiter sont mis en évidence) */
+.ref-status-approved { color: var(--ref-approved); font-size: .78rem; white-space: nowrap; }

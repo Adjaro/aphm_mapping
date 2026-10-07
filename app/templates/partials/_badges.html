@@ -1,6 +1,10 @@
 {# Macros d'affichage des statuts et drapeaux qualité (couleur + libellé texte) #}
 {% macro status_badge(status) -%}
-  <span class="ref-status ref-status-{{ status }}">{{ status }}</span>
+  {% if status == 'APPROVED' %}
+    <span class="ref-status-approved" title="APPROVED : mapping validé"><i class="bi bi-check2-circle"></i> validé</span>
+  {% else %}
+    <span class="ref-status ref-status-{{ status }}">{{ status }}</span>
+  {% endif %}
 {%- endmacro %}
 
 {% macro quality_badge(flag) -%}

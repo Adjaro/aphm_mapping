@@ -56,7 +56,7 @@ def test_update_mapping_changes_target_and_audits(session: Session) -> None:
     _cycle(session)
     stcm_id = _stcm_id(session, "v1.1", "GLU")
     data = MappingEditIn(
-        target_concept_id=2001, mapping_status="APPROVED", equivalence="WIDER", mapping_comment=" ok "
+        target_concept_id=2001, mapping_status="FLAGGED", equivalence="WIDER", mapping_comment=" ok "
     )
     mapping, label = mapping_service.update_mapping(session, stcm_id, data, "bob")
     assert label == "v1.1"
@@ -65,7 +65,10 @@ def test_update_mapping_changes_target_and_audits(session: Session) -> None:
         "bob",
         "ok",
     )
-    audit = sql(session, "SELECT changed_by, new_row ->> 'target_concept_id' FROM mapping.audit_log")
+    audit = sql(
+        session,
+        "SELECT changed_by, new_row ->> 'target_concept_id' FROM mapping.audit_log WHERE changed_by = 'bob'",
+    )
     assert audit == [("bob", "2001")]
 
 
@@ -117,7 +120,7 @@ def test_detail_history_marks_changes(session: Session) -> None:
         "reviewed_at",
         "reviewed_by",
     ]
-    assert detail.audit[0].changes[0] == ("mapping_status", "UNCHECKED", "FLAGGED")
+    assert detail.audit[0].changes[0] == ("mapping_status", "APPROVED", "FLAGGED")
 
 
 def test_compare_defaults_skip_archived_staging(session: Session) -> None:

@@ -59,6 +59,11 @@
     {% set n = o.lineage|selectattr('label', 'equalto', o.staging.label)|map(attribute='n_mappings')|first %}
     <div class="card border-warning"><div class="card-header py-1"><i class="bi bi-arrow-up-circle"></i> Promouvoir la staging {{ o.staging.label }}</div><div class="card-body">
       <p class="small text-secondary">Crée une nouvelle majeure (copie de {{ o.staging.label }}, {{ n|fmt_int }} mappings) puis archive la staging.</p>
+      {% set st = o.statuses.get(o.staging.label, {}) %}
+      <div class="small mb-2">À relire dans {{ o.staging.label }} :
+        <a href="/search-terms/terms?release={{ o.staging.label }}&mapping_status=UNCHECKED">{{ st.get('UNCHECKED', 0)|fmt_int }} UNCHECKED</a>
+        · <a href="/search-terms/terms?release={{ o.staging.label }}&mapping_status=FLAGGED">{{ st.get('FLAGGED', 0)|fmt_int }} FLAGGED</a>
+        <span class="text-secondary">(les UNCHECKED seront validés à la publication ; les FLAGGED la bloquent)</span></div>
       <form hx-post="/releases/{{ o.staging.label|quote_path }}/promote"
             hx-confirm="Promouvoir {{ o.staging.label }} ({{ n }} mappings) en nouvelle majeure ? La staging sera archivée et ne sera plus modifiable.">
         <div class="mb-2"><label class="form-label" for="ref-promote-label">Libellé de la nouvelle majeure</label>
@@ -74,8 +79,18 @@
     {% set n = o.lineage|selectattr('label', 'equalto', r.label)|map(attribute='n_mappings')|first %}
     <div class="card border-success"><div class="card-header py-1"><i class="bi bi-send-check"></i> Publier {{ r.label }}</div><div class="card-body">
       <p class="small text-secondary">Fige et publie {{ r.label }} ({{ n|fmt_int }} mappings) ; elle devient la release consommée par le pipeline.</p>
+      {% set st = o.statuses.get(r.label, {}) %}
+      {% if st.get('FLAGGED') %}
+        <div class="alert alert-warning py-1 small mb-2"><i class="bi bi-exclamation-triangle"></i>
+          {{ st.FLAGGED|fmt_int }} mapping(s) <span class="ref-status ref-status-FLAGGED">FLAGGED</span> à traiter avant publication :
+          <a href="/search-terms/terms?release={{ r.label }}&mapping_status=FLAGGED">les voir</a>.</div>
+      {% endif %}
+      {% if st.get('UNCHECKED') %}
+        <div class="small mb-2"><i class="bi bi-check2-circle text-success"></i> À la publication, les {{ st.UNCHECKED|fmt_int }} mapping(s)
+          <span class="ref-status ref-status-UNCHECKED">UNCHECKED</span> deviendront validés (APPROVED).</div>
+      {% endif %}
       <form hx-post="/releases/{{ r.label|quote_path }}/publish"
-            hx-confirm="Publier {{ r.label }} ({{ n }} mappings) ? La release sera figée définitivement.">
+            hx-confirm="Publier {{ r.label }} ({{ n }} mappings) ? Les {{ o.statuses.get(r.label, {}).get('UNCHECKED', 0) }} mapping(s) non relus seront validés (APPROVED) et la release sera figée définitivement.">
         <div class="mb-2"><label class="form-label" for="ref-build-{{ loop.index }}">Référence du build CDM</label>
           <input id="ref-build-{{ loop.index }}" name="cdm_build_ref" class="form-control form-control-sm" placeholder="ex. cdm_2026_10_aphm" required></div>
         <button class="btn btn-success btn-sm">Publier</button>

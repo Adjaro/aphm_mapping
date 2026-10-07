@@ -76,6 +76,69 @@ class ReportOut:
     errors_total: int
     page: int
     pages: int
+    effects: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class RollbackOut:
+    deleted: int
+    restored: int
+    reinserted: int
+
+
+def _get_batch_for_display(session: Session, batch_id: int) -> tuple[ImportBatch, Release]:
+    with session.begin():
+        return _get_batch(session, batch_id)
+
+
+def batch_state(batch: ImportBatch, release: Release) -> str:
+    """État affiché : en cours (release ouverte), archivé (release publiée/archivée), annulé, en attente…"""
+    if batch.status == "rolled_back":
+        return "rolled_back"
+    if batch.status in ("loaded", "partial") and release.status != "open":
+        return "archived"
+    return batch.status
+
+
+def can_rollback(batch: ImportBatch, release: Release) -> bool:
+    return batch.status in ("loaded", "partial") and release.status == "open" and batch.loaded_at is not None
+
+
+def can_delete(batch: ImportBatch) -> bool:
+    return batch.status in ("pending", "failed")
+
+
+def rollback(session: Session, batch_id: int, user: str) -> RollbackOut:
+    """Annule un import (fonction PostgreSQL rollback_import) : la release revient à son état d'avant."""
+    try:
+        with session.begin():
+            batch, release = _get_batch(session, batch_id)
+            if not can_rollback(batch, release):
+                raise BusinessError(
+                    f"Import n° {batch_id} non annulable : seul un import chargé dans une release ouverte "
+                    "peut être annulé (après publication, il est archivé)."
+                )
+            audit_repo.set_current_user(session, user)
+            deleted, restored, reinserted = import_repo.rollback_import(session, batch_id)
+    except DBAPIError as exc:
+        raise BusinessError(database_message(exc)) from exc
+    logger.info("Import %s annulé par %s : %s supprimées, %s restaurées", batch_id, user, deleted, restored)
+    return RollbackOut(deleted, restored, reinserted)
+
+
+def delete_batch(session: Session, batch_id: int) -> str:
+    """Supprime un import jamais chargé (en attente ou en échec) et son fichier."""
+    with session.begin():
+        batch, _ = _get_batch(session, batch_id)
+        if not can_delete(batch):
+            raise BusinessError(
+                f"Import n° {batch_id} déjà chargé : utiliser « Annuler l'import » pour retirer ses lignes."
+            )
+        path = batch_file(batch)
+        file_name = batch.file_name
+        import_repo.delete_batch(session, batch)
+    path.unlink(missing_ok=True)
+    return file_name
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +223,13 @@ def _save_stream(stream: BinaryIO, path: Path) -> str:
 def list_batches(session: Session) -> Sequence[Any]:
     with session.begin():
         return import_repo.list_batches(session)
+
+
+def display_state(status: str, release_status: str) -> str:
+    """Même règle que batch_state, à partir des colonnes de la liste des imports."""
+    if status in ("loaded", "partial") and release_status != "open":
+        return "archived"
+    return status
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +424,7 @@ def run_import(session: Session, batch_id: int, user: str) -> LoadResultOut:
             custom_columns = list(custom_column_repo.list_columns(session))
             audit_repo.set_current_user(session, user)
             result = _load(session, batch, release, custom_columns)
+            import_repo.mark_loaded(session, batch.import_batch_id)
             batch.rows_read = result.rows_read
             batch.rows_loaded = result.rows_inserted + result.rows_updated + result.rows_unchanged
             batch.rows_rejected = result.rows_rejected
@@ -476,7 +547,8 @@ def report(session: Session, batch_id: int, page: int) -> ReportOut:
         pages = max(1, -(-total // ERRORS_PAGE_SIZE))
         page = min(max(page, 1), pages)
         errors = import_repo.list_errors(session, batch_id, ERRORS_PAGE_SIZE, (page - 1) * ERRORS_PAGE_SIZE)
-    return ReportOut(batch, release, errors, total, page, pages)
+        effects = import_repo.import_effects(session, batch_id) if can_rollback(batch, release) else {}
+    return ReportOut(batch, release, errors, total, page, pages, effects)
 
 
 def import_local_file(

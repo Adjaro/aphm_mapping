@@ -1,6 +1,10 @@
 {# Badge de statut d'un lot d'import (variable b) ; pas de cible HTMX #}
+{# Variable optionnelle « state » : état d'affichage (archived si la release n'est plus ouverte) #}
 {% set colors = {'pending': 'text-bg-secondary', 'loaded': 'text-bg-success', 'partial': 'text-bg-warning',
-                 'failed': 'text-bg-danger', 'rolled_back': 'text-bg-dark'} %}
+                 'failed': 'text-bg-danger', 'rolled_back': 'text-bg-dark', 'archived': 'text-bg-light border'} %}
 {% set labels = {'pending': 'en attente', 'loaded': 'chargé', 'partial': 'partiel', 'failed': 'échec',
-                 'rolled_back': 'annulé'} %}
-<span class="badge {{ colors.get(b.status, 'text-bg-light') }}">{{ labels.get(b.status, b.status) }}</span>
+                 'rolled_back': 'annulé', 'archived': 'archivé'} %}
+{% set shown = state if state is defined and state else b.status %}
+<span class="badge {{ colors.get(shown, 'text-bg-light') }}"
+      {% if shown == 'archived' %}title="Release publiée : l'import fait partie de l'historique et ne peut plus être annulé"{% endif %}>
+  {% if shown == 'archived' %}<i class="bi bi-archive"></i> {% endif %}{{ labels.get(shown, shown) }}</span>

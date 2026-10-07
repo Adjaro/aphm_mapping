@@ -10,6 +10,32 @@
 {% if b.status == 'pending' %}
   <div class="alert alert-info py-2">Import non encore chargé : <a href="/imports/{{ b.import_batch_id }}/columns">reprendre l'assistant</a>.</div>
 {% endif %}
+{% if state == 'archived' %}
+  <div class="alert alert-secondary py-2"><i class="bi bi-archive"></i> Release {{ r.release.label }} {{ r.release.status|release_status }} :
+    cet import est archivé et ne peut plus être annulé.</div>
+{% elif state == 'rolled_back' %}
+  <div class="alert alert-dark py-2"><i class="bi bi-arrow-counterclockwise"></i> Import annulé : ses lignes ont été retirées de la release.</div>
+{% endif %}
+{% if can_rollback %}
+  {% set e = r.effects %}
+  <div id="ref-rollback" class="card border-danger mb-3"><div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="small">
+      <strong>Annuler cet import</strong> : la release {{ r.release.label }} revient à son état d'avant le chargement
+      — {{ e.get('INSERT', 0)|fmt_int }} ligne(s) ajoutée(s) retirée(s), {{ e.get('UPDATE', 0)|fmt_int }} ligne(s) modifiée(s) restaurée(s){% if e.get('DELETE') %},
+      {{ e.get('DELETE', 0)|fmt_int }} ligne(s) supprimée(s) remise(s){% endif %}.
+      Impossible si ces lignes ont été corrigées depuis.
+    </div>
+    <form hx-post="/imports/{{ b.import_batch_id }}/rollback" hx-disabled-elt="find button"
+          hx-confirm="Annuler l'import n° {{ b.import_batch_id }} ({{ b.file_name }}) ? {{ e.get('INSERT', 0) }} ligne(s) seront retirées et {{ e.get('UPDATE', 0) + e.get('DELETE', 0) }} remise(s) dans leur état d'avant, dans la release {{ r.release.label }}.">
+      <button class="btn btn-sm btn-danger"><i class="bi bi-arrow-counterclockwise"></i> Annuler l'import</button>
+    </form>
+  </div></div>
+{% elif can_delete %}
+  <form class="mb-3" hx-post="/imports/{{ b.import_batch_id }}/delete"
+        hx-confirm="Supprimer l'import n° {{ b.import_batch_id }} ({{ b.file_name }}) ? Il n'a rien chargé dans la release.">
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-trash"></i> Supprimer cet import</button>
+  </form>
+{% endif %}
 <div class="row g-3 text-center mb-3">
   <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure">{{ b.rows_read|fmt_int }}</div>lues</div></div></div>
   <div class="col-4 col-md-2"><div class="card"><div class="card-body py-2"><div class="ref-figure text-success">{{ b.rows_loaded|fmt_int }}</div>chargées</div></div></div>

@@ -6,11 +6,14 @@
   <h1 class="h4 mb-0">Imports</h1>
   <a class="btn btn-primary btn-sm" href="/imports/new"><i class="bi bi-upload"></i> Nouvel import</a>
 </div>
+<p class="small text-secondary">Un import peut être annulé tant que sa release est ouverte (staging) ;
+  après publication il est <span class="badge text-bg-light border"><i class="bi bi-archive"></i> archivé</span>
+  et fait partie de l'historique.</p>
 <div class="table-responsive bg-white border rounded">
 <table class="table table-sm table-hover mb-0 align-middle">
   <thead class="table-light"><tr>
     <th>N°</th><th>Fichier</th><th>Release</th><th>Vocab. source</th><th>Mode</th><th>Statut</th>
-    <th class="text-end">Lues</th><th class="text-end">Chargées</th><th class="text-end">Rejetées</th><th>Auteur</th><th>Date</th>
+    <th class="text-end">Lues</th><th class="text-end">Chargées</th><th class="text-end">Rejetées</th><th>Auteur</th><th>Date</th><th></th>
   </tr></thead>
   <tbody>
   {% for b in batches %}
@@ -21,15 +24,27 @@
       <td>{{ b.release_label }}</td>
       <td>{{ b.source_vocabulary_id or '' }}</td>
       <td>{{ b.load_mode|load_mode }}</td>
+      {% set state = 'archived' if b.status in ('loaded', 'partial') and b.release_status != 'open' else b.status %}
       <td>{% include "partials/_import_status.html" %}</td>
       <td class="text-end">{{ b.rows_read|fmt_int }}</td>
       <td class="text-end">{{ b.rows_loaded|fmt_int }}</td>
       <td class="text-end">{{ b.rows_rejected|fmt_int }}</td>
       <td>{{ b.created_by|user_label }}</td>
       <td>{{ b.created_at|fmt_dt }}</td>
+      <td class="text-nowrap text-end">
+        {% if b.status in ('loaded', 'partial') and b.release_status == 'open' and b.loaded_at %}
+          <a class="btn btn-sm btn-outline-danger py-0" href="/imports/{{ b.import_batch_id }}#ref-rollback"
+             title="Annuler cet import : retirer ses lignes de la release {{ b.release_label }}"><i class="bi bi-arrow-counterclockwise"></i> Annuler</a>
+        {% elif b.status in ('pending', 'failed') %}
+          <form class="d-inline" hx-post="/imports/{{ b.import_batch_id }}/delete"
+                hx-confirm="Supprimer l'import n° {{ b.import_batch_id }} ({{ b.file_name }}) ? Il n'a rien chargé dans la release.">
+            <button class="btn btn-sm btn-outline-secondary py-0" title="Supprimer cet import et son fichier"><i class="bi bi-trash"></i> Supprimer</button>
+          </form>
+        {% endif %}
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="11" class="text-center text-secondary py-4">Aucun import.</td></tr>
+    <tr><td colspan="12" class="text-center text-secondary py-4">Aucun import.</td></tr>
   {% endfor %}
   </tbody>
 </table>

@@ -90,6 +90,9 @@
           <label class="form-check-label" for="ref-mode-{{ mode }}"><code>{{ mode }}</code> — {{ label }}</label>
         </div>
       {% endfor %}
+      <div class="form-text"><strong>Statut :</strong> tout ce qu'un import ajoute ou modifie est marqué <code>UNCHECKED</code>
+        (à relire) ; seuls <code>IGNORED</code> et <code>FLAGGED</code> lus dans le fichier sont conservés.
+        Les mappings deviennent <code>APPROVED</code> à la publication de la release.</div>
       <div class="form-text">Les valeurs absentes prennent les valeurs par défaut du DDL (statut UNCHECKED, relation « Maps to »,
         validité 1970-01-01 → 2099-12-31). <code>target_vocabulary_id</code> vide est déduit du concept cible.</div>
     </div>

@@ -54,6 +54,19 @@ def count_releases(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(Release)) or 0
 
 
+def status_counts(session: Session, release_id: int) -> dict[str, int]:
+    stmt = text(
+        """
+        SELECT s.mapping_status,
+               count(*) AS n
+          FROM mapping.source_to_concept_map s
+         WHERE s.release_id = :release_id
+         GROUP BY s.mapping_status
+        """
+    )
+    return {str(status): int(n) for status, n in session.execute(stmt, {"release_id": release_id})}
+
+
 def count_mappings(session: Session, release_id: int) -> int:
     stmt = text("SELECT count(*) FROM mapping.source_to_concept_map WHERE release_id = :release_id")
     return int(session.execute(stmt, {"release_id": release_id}).scalar_one())

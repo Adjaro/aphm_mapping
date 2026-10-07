@@ -73,6 +73,10 @@ def overview(session: Session) -> dict[str, object]:
         staging = release_repo.open_staging(session)
         lineage = release_repo.lineage(session)
         open_major = [r for r in release_repo.open_releases(session) if r.kind == "major"]
+        statuses = {
+            r.label: release_repo.status_counts(session, r.release_id)
+            for r in ([staging] if staging else []) + open_major
+        }
     return {
         "lineage": lineage,
         "latest_published": latest,
@@ -81,6 +85,7 @@ def overview(session: Session) -> dict[str, object]:
         "suggested_staging_label": _next_minor(latest.label) if latest else None,
         "suggested_major_label": _next_major(staging.label) if staging else None,
         "has_releases": bool(lineage),
+        "statuses": statuses,
     }
 
 

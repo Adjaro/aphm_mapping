@@ -221,7 +221,9 @@ CREATE_TMP_VALID = text(
            t.domain_id,
            coalesce(t.relationship_id, 'Maps to')                           AS relationship_id,
            mapping.try_cast_int(t.source_frequency)                         AS source_frequency,
-           coalesce(t.mapping_status, 'UNCHECKED')                          AS mapping_status,
+           -- Tout ce qu'un import ajoute ou modifie est à relire : UNCHECKED, sauf IGNORED / FLAGGED
+           CASE WHEN t.mapping_status IN ('IGNORED', 'FLAGGED') THEN t.mapping_status
+                ELSE 'UNCHECKED' END                                       AS mapping_status,
            t.equivalence,
            t.mapping_comment,
            t.mapped_by,
@@ -367,8 +369,7 @@ LOAD_SQL = text(
                                               ELSE s.domain_id END,
                source_frequency        = CASE WHEN :u_source_frequency THEN EXCLUDED.source_frequency
                                               ELSE s.source_frequency END,
-               mapping_status          = CASE WHEN :u_mapping_status THEN EXCLUDED.mapping_status
-                                              ELSE s.mapping_status END,
+               mapping_status          = EXCLUDED.mapping_status,
                equivalence             = CASE WHEN :u_equivalence THEN EXCLUDED.equivalence
                                               ELSE s.equivalence END,
                mapping_comment         = CASE WHEN :u_mapping_comment THEN EXCLUDED.mapping_comment
@@ -391,7 +392,8 @@ LOAD_SQL = text(
                 OR (:u_invalid_reason AND EXCLUDED.invalid_reason IS DISTINCT FROM s.invalid_reason)
                 OR (:u_domain_id AND EXCLUDED.domain_id IS DISTINCT FROM s.domain_id)
                 OR (:u_source_frequency AND EXCLUDED.source_frequency IS DISTINCT FROM s.source_frequency)
-                OR (:u_mapping_status AND EXCLUDED.mapping_status IS DISTINCT FROM s.mapping_status)
+                OR (EXCLUDED.mapping_status IN ('IGNORED', 'FLAGGED')
+                    AND EXCLUDED.mapping_status IS DISTINCT FROM s.mapping_status)
                 OR (:u_equivalence AND EXCLUDED.equivalence IS DISTINCT FROM s.equivalence)
                 OR (:u_mapping_comment AND EXCLUDED.mapping_comment IS DISTINCT FROM s.mapping_comment)
                 OR (:u_mapped_by AND EXCLUDED.mapped_by IS DISTINCT FROM s.mapped_by)
@@ -458,7 +460,9 @@ def list_batches(session: Session, limit: int = 200) -> Sequence[RowMapping]:
                b.source_vocabulary_id,
                b.created_by,
                b.created_at,
-               r.label AS release_label
+               b.loaded_at,
+               r.label  AS release_label,
+               r.status AS release_status
           FROM mapping.import_batch b
           JOIN mapping.release r ON r.release_id = b.release_id
          ORDER BY b.created_at DESC, b.import_batch_id DESC
@@ -607,6 +611,47 @@ def load_valid_rows(
     params.update({f"u_{name}": name in provided_columns for name in UPSERT_FLAG_COLUMNS})
     row = session.execute(LOAD_SQL, params).one()
     return int(row.n_inserted), int(row.n_updated)
+
+
+MARK_LOADED_SQL = text(
+    """
+    UPDATE mapping.import_batch
+       SET loaded_at = now()
+     WHERE import_batch_id = :batch_id
+    """
+)
+
+IMPORT_EFFECTS_SQL = text(
+    """
+    SELECT e.effect,
+           count(*) AS n
+      FROM mapping.import_effects(:batch_id) e
+     GROUP BY e.effect
+    """
+)
+
+ROLLBACK_SQL = text("SELECT * FROM mapping.rollback_import(:batch_id)")
+
+
+def mark_loaded(session: Session, batch_id: int) -> None:
+    """Horodate le chargement avec l'heure de la transaction (= audit_log.changed_at des lignes touchées)."""
+    session.execute(MARK_LOADED_SQL, {"batch_id": batch_id})
+
+
+def import_effects(session: Session, batch_id: int) -> dict[str, int]:
+    """Nombre de lignes ajoutées (INSERT), modifiées (UPDATE) et supprimées (DELETE) par un import."""
+    rows = session.execute(IMPORT_EFFECTS_SQL, {"batch_id": batch_id}).all()
+    return {str(effect): int(n) for effect, n in rows}
+
+
+def rollback_import(session: Session, batch_id: int) -> tuple[int, int, int]:
+    row = session.execute(ROLLBACK_SQL, {"batch_id": batch_id}).one()
+    return int(row.n_deleted), int(row.n_restored), int(row.n_reinserted)
+
+
+def delete_batch(session: Session, batch: ImportBatch) -> None:
+    session.delete(batch)
+    session.flush()
 
 
 def tmp_counts(session: Session) -> tuple[int, int, int]:

@@ -48,6 +48,10 @@
   </div>
 
   <h2 class="h5 mt-4">Statuts d'un mapping</h2>
+  <p class="small">Dans une version publiée, tout est <strong>validé</strong>. Dans la staging, tout ce qu'un import ajoute
+    ou modifie est <strong>UNCHECKED</strong> (à relire) ; on peut le passer FLAGGED ou IGNORED depuis la fiche.
+    À la publication, les UNCHECKED deviennent APPROVED ; s'il reste des FLAGGED, la publication est refusée.
+    Un import peut être <strong>annulé</strong> tant que la staging est ouverte ; après publication, il est archivé.</p>
   <table class="table table-sm bg-white border">
     <tr><td><span class="ref-status ref-status-APPROVED">APPROVED</span></td><td>Validé par un relecteur.</td></tr>
     <tr><td><span class="ref-status ref-status-UNCHECKED">UNCHECKED</span></td><td>Proposé, pas encore relu.</td></tr>

@@ -20,7 +20,7 @@ def test_diff_codes_classifies_changes_per_code(session: Session) -> None:
     sql(
         session,
         """
-        UPDATE mapping.source_to_concept_map s SET mapping_status = 'APPROVED'
+        UPDATE mapping.source_to_concept_map s SET mapping_status = 'FLAGGED'
           FROM mapping.release r
          WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'GLU'
         """,

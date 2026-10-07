@@ -58,7 +58,7 @@ def test_audit_records_update_with_app_user(session: Session) -> None:
         session.execute(
             text(
                 """
-                UPDATE mapping.source_to_concept_map s SET mapping_status = 'APPROVED'
+                UPDATE mapping.source_to_concept_map s SET mapping_status = 'FLAGGED'
                   FROM mapping.release r
                  WHERE r.release_id = s.release_id AND r.label = 'v1.1' AND s.source_code = 'GLU'
                 """
@@ -67,9 +67,9 @@ def test_audit_records_update_with_app_user(session: Session) -> None:
     rows = sql(
         session,
         "SELECT operation, changed_by, old_row ->> 'mapping_status', new_row ->> 'mapping_status' "
-        "FROM mapping.audit_log",
+        "FROM mapping.audit_log WHERE changed_by = 'alice'",
     )
-    assert rows == [("UPDATE", "alice", "UNCHECKED", "APPROVED")]
+    assert rows == [("UPDATE", "alice", "APPROVED", "FLAGGED")]
 
 
 def test_promote_staging_archives_and_creates_major(session: Session) -> None:
@@ -164,3 +164,24 @@ CAST_SQL = {
 )
 def test_try_cast_functions(session: Session, kind: str, value: str, expected: str | None) -> None:
     assert sql(session, CAST_SQL[kind], value=value) == [(expected,)]
+
+
+def test_publish_approves_unchecked_and_blocks_flagged(session: Session) -> None:
+    sql(session, "SELECT mapping.create_release('v1.0', 'major')")
+    add_mapping(session, "v1.0", "A", 1001)
+    add_mapping(session, "v1.0", "B", 1002, mapping_status="IGNORED")
+    add_mapping(session, "v1.0", "C", 2001, mapping_status="FLAGGED", target_vocabulary_id="SNOMED")
+    with pytest.raises(DBAPIError, match="FLAGGED"):
+        sql(session, "SELECT mapping.publish_release('v1.0', 'b1')")
+    sql(
+        session,
+        "UPDATE mapping.source_to_concept_map SET mapping_status = 'UNCHECKED' WHERE source_code = 'C'",
+    )
+    with session.begin():
+        session.execute(text("SELECT set_config('app.user', 'publieur', true)"))
+        session.execute(text("SELECT mapping.publish_release('v1.0', 'b1')"))
+    rows = sql(
+        session,
+        "SELECT source_code, mapping_status, reviewed_by FROM mapping.source_to_concept_map ORDER BY 1",
+    )
+    assert rows == [("A", "APPROVED", "publieur"), ("B", "IGNORED", None), ("C", "APPROVED", "publieur")]

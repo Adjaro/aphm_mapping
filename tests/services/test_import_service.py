@@ -102,8 +102,10 @@ def test_upsert_updates_only_provided_columns(session: Session) -> None:
     batch_id = _import(session, content, "upsert", mapping=mapping)
     assert _batch(session, batch_id) == ("loaded", 2, 2, 0)
     rows = _rows(session)
-    assert rows["GLU"] == (1001, "LOINC", "APPROVED", "Glucose", None)  # description conservée
-    assert rows["DT2"] == (2001, "SNOMED", "APPROVED", None, None)
+    # GLU identique : non réécrit, garde le statut validé à la publication de v1.0 ; description conservée
+    assert rows["GLU"] == (1001, "LOINC", "APPROVED", "Glucose", None)
+    # DT2 ajouté par l'import : à relire, quel que soit le statut du fichier
+    assert rows["DT2"] == (2001, "SNOMED", "UNCHECKED", None, None)
 
 
 def test_replace_vocabulary_deletes_then_reloads(session: Session) -> None:
@@ -142,7 +144,7 @@ def test_rejects_invalid_rows_with_messages(session: Session) -> None:
     assert "date valide" in errors[7]
     assert "source_code obligatoire" in errors[8]
     assert "double" in errors[9]
-    assert _rows(session)["OK1"][2] == "APPROVED"
+    assert _rows(session)["OK1"][2] == "UNCHECKED"  # statut du fichier ignoré : tout import est à relire
 
 
 def test_vocabulary_mismatch_is_rejected(session: Session) -> None:
@@ -237,3 +239,76 @@ def test_upsert_skips_unchanged_rows(session: Session) -> None:
     assert _batch(session, batch_id) == ("loaded", 2, 2, 0)
     audit = sql(session, "SELECT new_row ->> 'source_code', changed_by FROM mapping.audit_log")
     assert audit == [("HB", "testeur")]
+
+
+def test_import_forces_unchecked_but_keeps_flagged_and_ignored(session: Session) -> None:
+    _staging(session)
+    content = "code;concept;statut\nA;1001;APPROVED\nB;1001;IGNORED\nC;1001;flagged\nGLU;1001;IGNORED\n"
+    mapping = {"source_code": "code", "target_concept_id": "concept", "mapping_status": "statut"}
+    _import(session, content, mapping=mapping)
+    rows = _rows(session)
+    assert (rows["A"][2], rows["B"][2], rows["C"][2]) == ("UNCHECKED", "IGNORED", "FLAGGED")
+    assert rows["GLU"][2] == "IGNORED"  # passage explicite à IGNORED : considéré comme une modification
+
+
+def _loaded_keys(session: Session) -> dict[str, tuple[object, ...]]:
+    return _rows(session)
+
+
+def test_rollback_insert_and_upsert(session: Session) -> None:
+    _staging(session)
+    before = _loaded_keys(session)
+    batch_id = _import(session, HEADER + "GLU;Glucose modifié;1001;\nHB;Hb;1002;\n")
+    assert _rows(session)["GLU"][3] == "Glucose modifié"
+    effects = import_service.report(session, batch_id, 1).effects
+    assert effects == {"INSERT": 1, "UPDATE": 1}
+    result = import_service.rollback(session, batch_id, "annuleur")
+    assert (result.deleted, result.restored, result.reinserted) == (1, 1, 0)
+    assert _loaded_keys(session) == before
+    assert _batch(session, batch_id)[0] == "rolled_back"
+    with pytest.raises(BusinessError, match="non annulable"):
+        import_service.rollback(session, batch_id, "x")
+
+
+def test_rollback_replace_vocabulary_restores_deleted_rows(session: Session) -> None:
+    _staging(session)
+    add_mapping(session, "v1.1", "OLD", 1002, source_vocabulary_id="LABO")
+    before = _loaded_keys(session)
+    batch_id = _import(session, HEADER + "NEW;Nouveau;1001;\n", "replace_vocabulary")
+    assert set(_rows(session)) == {"NEW"}
+    result = import_service.rollback(session, batch_id, "x")
+    assert (result.deleted, result.reinserted) == (1, 2)
+    assert _loaded_keys(session) == before
+
+
+def test_rollback_refused_after_manual_correction(session: Session) -> None:
+    _staging(session)
+    batch_id = _import(session, HEADER + "HB;Hb;1002;\n")
+    sql(
+        session,
+        "UPDATE mapping.source_to_concept_map SET mapping_comment = 'corrigé' WHERE source_code = 'HB'",
+    )
+    with pytest.raises(BusinessError, match="modifiée"):
+        import_service.rollback(session, batch_id, "x")
+
+
+def test_rollback_refused_once_release_published(session: Session) -> None:
+    _staging(session)
+    batch_id = _import(session, HEADER + "HB;Hb;1002;\n")
+    release_service.promote(session, "v1.1", "v2.0", "x")
+    with pytest.raises(BusinessError, match="archivé"):
+        import_service.rollback(session, batch_id, "x")
+    batch, release = import_service._get_batch_for_display(session, batch_id)
+    assert import_service.batch_state(batch, release) == "archived"
+
+
+def test_delete_pending_batch(session: Session) -> None:
+    _staging(session)
+    batch_id = import_service.create_batch(session, io.BytesIO(HEADER.encode()), "f.csv", None, "x")
+    assert import_service.delete_batch(session, batch_id) == "f.csv"
+    assert sql(
+        session, "SELECT count(*) FROM mapping.import_batch WHERE import_batch_id = :b", b=batch_id
+    ) == [(0,)]
+    loaded = _import(session, HEADER + "HB;Hb;1002;\n")
+    with pytest.raises(BusinessError, match="Annuler"):
+        import_service.delete_batch(session, loaded)

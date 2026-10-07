@@ -30,6 +30,7 @@ class ImportBatch(Base):
     status: Mapped[str] = mapped_column(Text, default="pending")
     created_by: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default="now()")
+    loaded_at: Mapped[datetime | None]
 
 
 class ImportErrorRow(Base):
