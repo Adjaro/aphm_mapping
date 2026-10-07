@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.routes.deps import attachment, is_htmx, not_found, render, render_fragment
-from app.schemas.search import FACET_LABELS, PAGE_SIZES, SORT_LABELS, SearchFilter
+from app.schemas.search import FACET_LABELS, PAGE_SIZES, SCOPE_LABELS, SORT_LABELS, SearchFilter
 from app.services import export_service, release_service, search_service
 
 router = APIRouter()
@@ -56,6 +56,7 @@ def search_terms(request: Request, session: SessionDep) -> Response:
         "result": result,
         "flt": result.filter,
         "sort_labels": SORT_LABELS,
+        "scope_labels": SCOPE_LABELS,
         "page_sizes": PAGE_SIZES,
         "release": current,
     }

@@ -27,10 +27,15 @@
         <td>{{ row.source_code_description or '' }}</td>
         <td>{{ row.source_vocabulary_id }}</td>
         <td>{{ row.domain_id or '' }}</td>
-        <td class="text-nowrap">{{ row.target_concept_id }}
-          {% if row.n_sources > 1 %}<span class="badge rounded-pill text-bg-light border ref-card-badge" data-bs-toggle="tooltip"
-            title="Cible partagée par {{ row.n_sources }} codes source">{{ row.n_sources|fmt_int }} codes</span>{% endif %}</td>
-        <td>{{ target_label(row.concept_name) }}{% if row.relationship_id != 'Maps to' %} <span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}</td>
+        {% set target_url = flt.url(target_concept=row.target_concept_id, page=1) %}
+        <td class="text-nowrap">
+          <a href="{{ target_url }}" hx-get="{{ target_url }}" hx-target="#ref-search-body" hx-push-url="true"
+             class="ref-target-link" title="Voir tous les codes source mappés vers ce concept">{{ row.target_concept_id }}</a>
+          {% if row.n_sources > 1 %}<a href="{{ target_url }}" hx-get="{{ target_url }}" hx-target="#ref-search-body" hx-push-url="true"
+            class="badge rounded-pill text-bg-light border ref-card-badge text-decoration-none" data-bs-toggle="tooltip"
+            title="Cible partagée par {{ row.n_sources }} codes source : cliquer pour les voir">{{ row.n_sources|fmt_int }} codes</a>{% endif %}</td>
+        <td><a href="{{ target_url }}" hx-get="{{ target_url }}" hx-target="#ref-search-body" hx-push-url="true"
+               class="ref-target-link" title="Voir tous les codes source mappés vers ce concept">{{ target_label(row.concept_name) }}</a>{% if row.relationship_id != 'Maps to' %} <span class="badge text-bg-light border">{{ row.relationship_id }}</span>{% endif %}</td>
         <td>{{ row.target_vocabulary_id }}</td>
         <td>{{ status_badge(row.mapping_status) }}</td>
         <td>{{ quality_badge(row.quality_flag) }}</td>

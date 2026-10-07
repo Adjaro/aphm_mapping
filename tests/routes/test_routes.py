@@ -316,3 +316,14 @@ def test_encoded_author_is_displayed_decoded(client: TestClient, session: Sessio
     )
     sql(session, "UPDATE mapping.import_batch SET created_by = 'Jean%20Dupont'")
     assert "Jean Dupont" in client.get("/imports").text
+
+
+def test_target_is_clickable_in_search_and_detail(client: TestClient, session: Session) -> None:
+    _cycle(session)
+    page = client.get("/search-terms/terms?release=v1.0")
+    assert "target_concept=1001" in page.text
+    reverse = client.get("/search-terms/terms?release=v1.0&target_concept=1001", headers=HX)
+    assert "Codes source mappés vers le concept" in reverse.text and "GLU" in reverse.text
+    assert "/mL" not in reverse.text
+    detail = client.get("/mappings/LABO/GLU?release=v1.0")
+    assert "target_concept=1001" in detail.text

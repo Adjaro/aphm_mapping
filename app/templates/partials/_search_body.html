@@ -3,17 +3,41 @@
 <input type="hidden" name="sort" value="{{ flt.sort }}">
 <input type="hidden" name="order" value="{{ flt.order }}">
 {% if flt.import_batch is not none %}<input type="hidden" name="import_batch" value="{{ flt.import_batch }}">{% endif %}
+{% if flt.target_concept is not none %}<input type="hidden" name="target_concept" value="{{ flt.target_concept }}">{% endif %}
 <div class="row g-3">
   <aside class="col-lg-3">
     {% include "partials/_facets.html" %}
   </aside>
   <section class="col-lg-9">
+    {% if result.target %}
+      {% set t = result.target %}
+      <div class="card border-primary mb-2 ref-target-card">
+        <div class="card-body py-2 d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div>
+            <div class="small text-secondary"><i class="bi bi-arrow-return-left"></i> Codes source mappés vers le concept</div>
+            <div class="fs-6"><strong>{{ t.concept_id }}</strong>
+              {% if t.concept %}{{ t.concept.concept_name }}
+                <span class="badge text-bg-light border">{{ t.concept.vocabulary_id }}</span>
+                <span class="badge text-bg-info">{{ t.concept.domain_id }}</span>
+                <span class="badge text-bg-light border">{{ t.concept.concept_class_id }}</span>
+                {% if t.concept.standard_concept != 'S' %}<span class="badge text-bg-warning">non standard</span>{% endif %}
+              {% else %}<span class="ref-target-missing">(concept introuvable dans le vocabulaire chargé)</span>{% endif %}
+            </div>
+            <div class="small mt-1"><strong>{{ t.n_source_codes|fmt_int }}</strong> code{{ 's' if t.n_source_codes > 1 }} source
+              dans {{ t.source_vocabularies|join(', ') or '—' }}</div>
+          </div>
+          {% set back = flt.without('target_concept') %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ back }}" hx-get="{{ back }}" hx-target="#ref-search-body" hx-push-url="true">
+            <i class="bi bi-x"></i> Tous les concepts</a>
+        </div>
+      </div>
+    {% endif %}
     {% set active = flt.active_filters() %}
     {% if active %}
     <div class="d-flex flex-wrap gap-1 mb-2 align-items-center" id="ref-active-filters">
       {% for param, value, label in active %}
-        {% if param == 'query' %}
-          <a class="badge rounded-pill text-bg-light border text-decoration-none" href="{{ flt.without('query') }}"
+        {% if param in ('query', 'scope') %}
+          <a class="badge rounded-pill text-bg-light border text-decoration-none" href="{{ flt.without(param) }}"
              title="Effacer">{{ label }} <i class="bi bi-x"></i></a>
         {% else %}
           {% set url = flt.without(param, value) %}

@@ -165,18 +165,26 @@ def _base_select(release_id: int, flt: SearchFilter) -> Select[Any]:
         .where(stcm.c.release_id == release_id, q.c.release_id == release_id)
     )
     if flt.query:
-        pattern = f"%{_escape_like(flt.query)}%"
-        conditions: list[ColumnElement[bool]] = [
-            stcm.c.source_code.ilike(pattern, escape="\\"),
-            stcm.c.source_code_description.ilike(pattern, escape="\\"),
-            q.c.concept_name.ilike(pattern, escape="\\"),
-        ]
-        if flt.query.isdigit() and len(flt.query) <= 9:
-            conditions.append(stcm.c.target_concept_id == int(flt.query))
-        stmt = stmt.where(or_(*conditions))
+        stmt = stmt.where(or_(*_text_conditions(flt.query, flt.scope)))
     if flt.import_batch is not None:
         stmt = stmt.where(stcm.c.import_batch_id == flt.import_batch)
+    if flt.target_concept is not None:
+        stmt = stmt.where(stcm.c.target_concept_id == flt.target_concept)
     return stmt
+
+
+def _text_conditions(query: str, scope: str) -> list[ColumnElement[bool]]:
+    """Recherche texte : codes source (code, description), concepts cibles (libellé, ID) ou les deux."""
+    pattern = f"%{_escape_like(query)}%"
+    conditions: list[ColumnElement[bool]] = []
+    if scope in ("all", "source"):
+        conditions.append(stcm.c.source_code.ilike(pattern, escape="\\"))
+        conditions.append(stcm.c.source_code_description.ilike(pattern, escape="\\"))
+    if scope in ("all", "target"):
+        conditions.append(q.c.concept_name.ilike(pattern, escape="\\"))
+        if query.isdigit() and len(query) <= 9:
+            conditions.append(stcm.c.target_concept_id == int(query))
+    return conditions
 
 
 def _facet_condition(column: ColumnElement[Any], values: Sequence[str]) -> ColumnElement[bool]:
@@ -250,6 +258,23 @@ def facet_counts(
     for values in result.values():
         values.sort(key=lambda item: (-item[1], item[0] or ""))
     return result
+
+
+TARGET_SUMMARY_SQL = text(
+    """
+    SELECT count(DISTINCT (s.source_vocabulary_id, s.source_code))              AS n_source_codes,
+           array_agg(DISTINCT s.source_vocabulary_id ORDER BY s.source_vocabulary_id) AS source_vocabularies
+      FROM mapping.source_to_concept_map s
+     WHERE s.release_id = :release_id
+       AND s.target_concept_id = :concept_id
+    """
+)
+
+
+def target_summary(session: Session, release_id: int, concept_id: int) -> RowMapping:
+    """Codes source qui pointent vers un concept cible dans la release (recherche inverse)."""
+    params = {"release_id": release_id, "concept_id": concept_id}
+    return session.execute(TARGET_SUMMARY_SQL, params).mappings().one()
 
 
 # ---------------------------------------------------------------------------

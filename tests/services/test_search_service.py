@@ -104,3 +104,26 @@ def test_facet_values_have_help(session: Session) -> None:
     equivalence = next(f for f in result.facets if f.name == "equivalence")
     empty = next(v for v in equivalence.values if v.value == NULL_VALUE)
     assert empty.label == "(non renseignée)" and empty.help is not None
+
+
+def test_reverse_search_by_target_concept(session: Session) -> None:
+    release = _release(session)
+    add_mapping(session, "v1.0", "GLY", 1001, source_vocabulary_id="AUTRE")
+    result = search_service.search(session, release, SearchFilter(target_concept=1001))
+    assert sorted(row["source_code"] for row in result.rows) == ["GLU", "GLY"]
+    assert result.target is not None
+    assert result.target["concept"]["concept_name"] == "Glucose [Mass/volume] in Serum"
+    assert result.target["n_source_codes"] == len(result.rows)
+    assert ("target_concept", "1001", "Concept cible n° 1001") in result.filter.active_filters()
+
+
+def test_search_scope(session: Session) -> None:
+    release = _release(session)
+    # « glucose » n'apparaît que dans le libellé du concept cible de GLU
+    assert search_service.search(session, release, SearchFilter(query="glucose", scope="source")).total == 0
+    assert search_service.search(session, release, SearchFilter(query="glucose", scope="target")).total == 1
+    # « diabète » n'apparaît que dans la description source de E11 (le concept cible dit « diabetes »)
+    assert search_service.search(session, release, SearchFilter(query="diabète", scope="target")).total == 0
+    assert search_service.search(session, release, SearchFilter(query="diabète", scope="source")).total == 1
+    assert "scope=target" in SearchFilter(query="x", scope="target").url()
+    assert "scope" not in SearchFilter(query="x").url()

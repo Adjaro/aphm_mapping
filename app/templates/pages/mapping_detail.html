@@ -52,7 +52,10 @@
       <div class="{{ 'col-xxl-6 col-xl-8' if rows|length == 1 else 'col-xl-6' }}">
         <div class="card ref-detail-card">
           <div class="card-header d-flex justify-content-between align-items-center py-1">
-            <span>{{ row.relationship_id }} → <strong>{{ row.target_concept_id }}</strong> {{ target_label(row.concept_name) }}</span>
+            <span>{{ row.relationship_id }} →
+              <a href="/search-terms/terms?release={{ detail.release.label }}&target_concept={{ row.target_concept_id }}"
+                 title="Voir tous les codes source mappés vers ce concept"><strong>{{ row.target_concept_id }}</strong>
+                {{ target_label(row.concept_name) }}</a></span>
             {% if detail.release.is_open %}
               <button class="btn btn-sm btn-outline-primary" hx-get="/mappings/{{ row.stcm_id }}/edit" hx-target="#ref-edit-panel">
                 <i class="bi bi-pencil"></i> Modifier</button>
@@ -107,8 +110,9 @@
       {% for row in rows %}
         <tr>
           <td>{{ row.relationship_id }}</td>
-          <td>{{ row.target_concept_id }}</td>
-          <td>{{ target_label(row.concept_name) }}</td>
+          {% set reverse_url = '/search-terms/terms?release=' ~ detail.release.label ~ '&target_concept=' ~ row.target_concept_id %}
+          <td><a href="{{ reverse_url }}" title="Voir tous les codes source mappés vers ce concept">{{ row.target_concept_id }}</a></td>
+          <td><a href="{{ reverse_url }}" title="Voir tous les codes source mappés vers ce concept">{{ target_label(row.concept_name) }}</a></td>
           <td>{{ row.target_domain_id or '' }}</td>
           <td>{{ row.concept_vocabulary_id or row.target_vocabulary_id }}</td>
           <td>{{ row.concept_class_id or '' }}</td>

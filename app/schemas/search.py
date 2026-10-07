@@ -86,6 +86,12 @@ def facet_value_label(facet: str, value: str) -> str:
     return "(vide)" if value == NULL_VALUE else value
 
 
+SCOPE_LABELS: dict[str, str] = {
+    "all": "Tout",
+    "source": "Codes source",
+    "target": "Concepts cibles",
+}
+
 SORT_LABELS: dict[str, str] = {
     "source_code": "Code source",
     "source_code_description": "Description",
@@ -113,6 +119,8 @@ class SearchFilter(BaseModel):
     source_targets: list[str] = Field(default_factory=list)
     target_sources: list[str] = Field(default_factory=list)
     import_batch: int | None = None
+    target_concept: int | None = None
+    scope: Literal["all", "source", "target"] = "all"
     page: int = Field(default=1, ge=1)
     page_size: int = DEFAULT_PAGE_SIZE
     sort: str = "source_code"
@@ -137,9 +145,10 @@ class SearchFilter(BaseModel):
         data = self.model_dump()
         data.update(overrides)
         params: list[tuple[str, str]] = []
-        for key in ("release", "query", *FACET_LABELS, "import_batch", "page", "page_size", "sort", "order"):
+        keys = ("release", "query", "scope", *FACET_LABELS, "import_batch", "target_concept")
+        for key in (*keys, "page", "page_size", "sort", "order"):
             value = data.get(key)
-            if value is None or value == "" or value == []:
+            if value is None or value == "" or value == [] or (key == "scope" and value == "all"):
                 continue
             if isinstance(value, list):
                 params.extend((key, str(v)) for v in value)
@@ -167,6 +176,12 @@ class SearchFilter(BaseModel):
                 active.append((facet, value, f"{label} : {facet_value_label(facet, value)}"))
         if self.import_batch is not None:
             active.append(("import_batch", str(self.import_batch), f"Import n° {self.import_batch}"))
+        if self.target_concept is not None:
+            active.append(
+                ("target_concept", str(self.target_concept), f"Concept cible n° {self.target_concept}")
+            )
+        if self.query and self.scope != "all":
+            active.append(("scope", self.scope, f"Recherche dans : {SCOPE_LABELS[self.scope]}"))
         return active
 
 

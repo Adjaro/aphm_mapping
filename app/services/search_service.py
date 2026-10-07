@@ -8,7 +8,7 @@ from sqlalchemy import RowMapping
 from sqlalchemy.orm import Session
 
 from app.models import CustomColumn, Release
-from app.repositories import audit_repo, custom_column_repo, stcm_repo
+from app.repositories import audit_repo, custom_column_repo, stcm_repo, vocab_repo
 from app.schemas.search import (
     FACET_LABELS,
     FACET_VALUE_HELP,
@@ -41,6 +41,7 @@ class SearchResultOut:
     total: int
     facets: list[FacetOut]
     pages: int
+    target: dict[str, Any] | None = None
 
 
 @dataclass
@@ -84,7 +85,21 @@ def search(session: Session, release: Release, flt: SearchFilter) -> SearchResul
             flt.page = pages
         rows = stcm_repo.search(session, release.release_id, flt)
         counts = stcm_repo.facet_counts(session, release.release_id, flt)
-    return SearchResultOut(filter=flt, rows=rows, total=total, facets=_build_facets(flt, counts), pages=pages)
+        target = _target(session, release, flt.target_concept) if flt.target_concept is not None else None
+    facets = _build_facets(flt, counts)
+    return SearchResultOut(filter=flt, rows=rows, total=total, facets=facets, pages=pages, target=target)
+
+
+def _target(session: Session, release: Release, concept_id: int) -> dict[str, Any]:
+    """Résumé du concept cible filtré : libellé (vocabulaire chargé) et codes source qui y pointent."""
+    concept = vocab_repo.get_concept(session, concept_id)
+    summary = stcm_repo.target_summary(session, release.release_id, concept_id)
+    return {
+        "concept_id": concept_id,
+        "concept": dict(concept) if concept else None,
+        "n_source_codes": int(summary["n_source_codes"]),
+        "source_vocabularies": summary["source_vocabularies"] or [],
+    }
 
 
 def _build_facets(flt: SearchFilter, counts: dict[str, list[tuple[str | None, int]]]) -> list[FacetOut]:

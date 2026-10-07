@@ -9,8 +9,14 @@
   <div class="ref-searchbar mb-3">
     <div class="input-group">
       <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <select name="scope" class="form-select ref-scope-select" aria-label="Rechercher dans"
+              title="Rechercher dans les codes source, dans les concepts cibles, ou les deux">
+        {% for key, label in scope_labels.items() %}
+          <option value="{{ key }}" {% if flt.scope == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
       <input id="ref-query" type="search" name="query" value="{{ flt.query }}" class="form-control"
-             placeholder="Code source, description ou libellé du concept cible" aria-label="Recherche" autocomplete="off">
+             placeholder="Code source, description, libellé ou ID du concept cible" aria-label="Recherche" autocomplete="off">
       <button class="btn btn-primary" type="submit">Rechercher</button>
     </div>
   </div>
